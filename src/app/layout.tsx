@@ -4,8 +4,8 @@ import { Header } from '@/components/branding/Header';
 import { Footer } from '@/components/branding/Footer';
 
 export const metadata: Metadata = {
-  title: 'Throat Goat | In-Browser Meme Drawing Studio',
-  description: 'Draw, erase, and submit humorous drawings directly in your browser. Powered by Konva and Next.js.',
+  title: 'Throat Goat | Multiplayer Tattoo Party Game',
+  description: 'A humorous multiplayer browser game where players create funny titles for questionable tattoos and vote for the best. Powered by Next.js & Supabase.',
   icons: {
     icon: 'data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>🐐</text></svg>',
   },

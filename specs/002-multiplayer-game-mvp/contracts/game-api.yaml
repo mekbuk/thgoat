@@ -1,0 +1,423 @@
+openapi: 3.0.3
+info:
+  title: Throat Goat Multiplayer Party Game API
+  version: 2.0.0
+  description: Authoritative Server API contracts and Realtime Event specifications for Throat Goat multiplayer game rooms.
+paths:
+  /api/rooms:
+    post:
+      summary: Create a new game room
+      description: Generates a 4-character room code, registers the host player, and returns initial room state and session token.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - nickname
+              properties:
+                nickname:
+                  type: string
+                  minLength: 1
+                  maxLength: 16
+                  example: "HostTroll"
+      responses:
+        '201':
+          description: Room created successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                  - room_id
+                  - room_code
+                  - player_id
+                  - session_token
+                  - phase
+                properties:
+                  room_id:
+                    type: string
+                    format: uuid
+                  room_code:
+                    type: string
+                    example: "TG88"
+                  player_id:
+                    type: string
+                    format: uuid
+                  session_token:
+                    type: string
+                  phase:
+                    type: string
+                    enum: [LOBBY, SUBMITTING, VOTING, RESULTS, FINISHED]
+        '400':
+          $ref: '#/components/responses/BadRequest'
+
+  /api/rooms/{code}/join:
+    post:
+      summary: Join an existing game room
+      parameters:
+        - name: code
+          in: path
+          required: true
+          schema:
+            type: string
+            example: "TG88"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - nickname
+              properties:
+                nickname:
+                  type: string
+                  minLength: 1
+                  maxLength: 16
+                  example: "TattooFan"
+      responses:
+        '200':
+          description: Successfully joined room
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                  - room_id
+                  - room_code
+                  - player_id
+                  - session_token
+                  - phase
+                properties:
+                  room_id:
+                    type: string
+                    format: uuid
+                  room_code:
+                    type: string
+                  player_id:
+                    type: string
+                    format: uuid
+                  session_token:
+                    type: string
+                  phase:
+                    type: string
+                    enum: [LOBBY, SUBMITTING, VOTING, RESULTS, FINISHED]
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '404':
+          description: Room not found
+        '409':
+          description: Room is full or game already in progress
+
+  /api/rooms/{code}/state:
+    get:
+      summary: Retrieve complete authoritative game room state (for hydration/reconnection)
+      parameters:
+        - name: code
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: x-session-token
+          in: header
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Full room state payload
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RoomState'
+        '401':
+          description: Invalid session token
+        '404':
+          description: Room not found
+
+  /api/rooms/{code}/start:
+    post:
+      summary: Host starts the game
+      parameters:
+        - name: code
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: x-session-token
+          in: header
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Game started, transitions to Stage 1 SUBMITTING
+        '403':
+          description: Only the host can start the game or insufficient players (< 3)
+        '409':
+          description: Game is not in LOBBY phase
+
+  /api/rooms/{code}/submit:
+    post:
+      summary: Submit a title for the active stage picture
+      parameters:
+        - name: code
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: x-session-token
+          in: header
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - stage_id
+                - title
+              properties:
+                stage_id:
+                  type: string
+                  format: uuid
+                title:
+                  type: string
+                  minLength: 1
+                  maxLength: 100
+                  example: "When you ask for a dragon and get a lizard"
+      responses:
+        '200':
+          description: Title submitted successfully
+        '400':
+          description: Invalid title length or duplicate submission
+        '409':
+          description: Room is not in SUBMITTING phase
+
+  /api/rooms/{code}/vote:
+    post:
+      summary: Cast a vote for a title in the active stage
+      parameters:
+        - name: code
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: x-session-token
+          in: header
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - stage_id
+                - submission_id
+              properties:
+                stage_id:
+                  type: string
+                  format: uuid
+                submission_id:
+                  type: string
+                  format: uuid
+      responses:
+        '200':
+          description: Vote recorded successfully
+        '400':
+          description: Self-voting prohibited or duplicate vote
+        '409':
+          description: Room is not in VOTING phase
+
+  /api/rooms/{code}/advance:
+    post:
+      summary: Advance from RESULTS to next stage or to FINISHED
+      parameters:
+        - name: code
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: x-session-token
+          in: header
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Stage advanced successfully
+
+  /api/rooms/{code}/reset:
+    post:
+      summary: Reset game back to LOBBY for a rematch
+      parameters:
+        - name: code
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: x-session-token
+          in: header
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Game reset to LOBBY
+
+components:
+  schemas:
+    RoomState:
+      type: object
+      required:
+        - room_id
+        - room_code
+        - phase
+        - current_stage_number
+        - players
+        - me
+      properties:
+        room_id:
+          type: string
+          format: uuid
+        room_code:
+          type: string
+        phase:
+          type: string
+          enum: [LOBBY, SUBMITTING, VOTING, RESULTS, FINISHED]
+        current_stage_number:
+          type: integer
+          enum: [1, 2]
+        host_player_id:
+          type: string
+          format: uuid
+        players:
+          type: array
+          items:
+            $ref: '#/components/schemas/PlayerSummary'
+        me:
+          $ref: '#/components/schemas/CurrentPlayer'
+        current_stage:
+          $ref: '#/components/schemas/ActiveStageInfo'
+        voting_options:
+          type: array
+          items:
+            $ref: '#/components/schemas/VotingOption'
+        stage_results:
+          type: array
+          items:
+            $ref: '#/components/schemas/StageResultItem'
+        final_leaderboard:
+          type: array
+          items:
+            $ref: '#/components/schemas/LeaderboardEntry'
+
+    PlayerSummary:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        nickname:
+          type: string
+        is_host:
+          type: boolean
+        score:
+          type: integer
+        is_connected:
+          type: boolean
+
+    CurrentPlayer:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        nickname:
+          type: string
+        is_host:
+          type: boolean
+        score:
+          type: integer
+        has_submitted:
+          type: boolean
+        has_voted:
+          type: boolean
+
+    ActiveStageInfo:
+      type: object
+      properties:
+        stage_id:
+          type: string
+          format: uuid
+        stage_number:
+          type: integer
+        picture_url:
+          type: string
+        picture_description:
+          type: string
+        task_prompt:
+          type: string
+          example: "Give this tattoo your funniest title."
+
+    VotingOption:
+      type: object
+      properties:
+        submission_id:
+          type: string
+          format: uuid
+        title:
+          type: string
+
+    StageResultItem:
+      type: object
+      properties:
+        submission_id:
+          type: string
+          format: uuid
+        title:
+          type: string
+        author_nickname:
+          type: string
+        votes_received:
+          type: integer
+        is_winner:
+          type: boolean
+        points_awarded:
+          type: integer
+
+    LeaderboardEntry:
+      type: object
+      properties:
+        rank:
+          type: integer
+        player_id:
+          type: string
+          format: uuid
+        nickname:
+          type: string
+        total_score:
+          type: integer
+        is_champion:
+          type: boolean
+
+  responses:
+    BadRequest:
+      description: Invalid request payload or parameter
+      content:
+        application/json:
+          schema:
+            type: object
+            properties:
+              code:
+                type: string
+              message:
+                type: string
