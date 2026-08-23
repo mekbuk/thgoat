@@ -1,0 +1,225 @@
+openapi: 3.1.0
+info:
+  title: Throat Goat Drawing MVP API
+  version: 1.0.0
+  description: Public and server API contracts for in-browser drawing submission and gallery retrieval.
+paths:
+  /api/drawings:
+    post:
+      summary: Submit a completed drawing
+      description: Validates payload, converts base64 image, uploads to object storage, and saves metadata in PostgreSQL.
+      operationId: submitDrawing
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SubmitDrawingRequest'
+      responses:
+        '201':
+          description: Drawing successfully saved and persisted
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SubmitDrawingResponse'
+        '400':
+          description: Invalid request payload, missing image data, or invalid dimensions
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiErrorResponse'
+        '413':
+          description: Payload too large (exceeds 2MB limit)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiErrorResponse'
+        '500':
+          description: Internal server error or storage upload failure
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiErrorResponse'
+
+    get:
+      summary: List submitted drawings for gallery feed
+      description: Returns chronological list of drawings with public image URLs.
+      operationId: getDrawings
+      parameters:
+        - name: limit
+          in: query
+          required: false
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 50
+            default: 20
+        - name: cursor
+          in: query
+          required: false
+          schema:
+            type: string
+            format: date-time
+          description: Created_at cursor for pagination
+      responses:
+        '200':
+          description: List of drawings
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GetDrawingsResponse'
+        '500':
+          description: Database retrieval error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiErrorResponse'
+
+  /api/drawings/{id}:
+    get:
+      summary: Get a specific drawing by ID
+      operationId: getDrawingById
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Drawing details
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DrawingPublicDto'
+        '404':
+          description: Drawing not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiErrorResponse'
+
+components:
+  schemas:
+    SubmitDrawingRequest:
+      type: object
+      required:
+        - imageBase64
+        - format
+        - width
+        - height
+        - strokeCount
+      properties:
+        imageBase64:
+          type: string
+          description: Data URL or raw base64 string of the exported image
+        format:
+          type: string
+          enum: [image/webp, image/png]
+          default: image/webp
+        width:
+          type: integer
+          minimum: 300
+          maximum: 4096
+        height:
+          type: integer
+          minimum: 300
+          maximum: 4096
+        strokeCount:
+          type: integer
+          minimum: 1
+        title:
+          type: string
+          maxLength: 100
+          default: Untitled Throat Goat
+        creatorId:
+          type: string
+          format: uuid
+
+    SubmitDrawingResponse:
+      type: object
+      required:
+        - success
+        - drawing
+      properties:
+        success:
+          type: boolean
+          example: true
+        drawing:
+          $ref: '#/components/schemas/DrawingPublicDto'
+
+    GetDrawingsResponse:
+      type: object
+      required:
+        - drawings
+        - hasMore
+      properties:
+        drawings:
+          type: array
+          items:
+            $ref: '#/components/schemas/DrawingPublicDto'
+        hasMore:
+          type: boolean
+        nextCursor:
+          type: string
+          format: date-time
+          nullable: true
+
+    DrawingPublicDto:
+      type: object
+      required:
+        - id
+        - imageUrl
+        - title
+        - width
+        - height
+        - strokeCount
+        - createdAt
+      properties:
+        id:
+          type: string
+          format: uuid
+        imageUrl:
+          type: string
+          format: uri
+        thumbnailUrl:
+          type: string
+          format: uri
+          nullable: true
+        title:
+          type: string
+        width:
+          type: integer
+        height:
+          type: integer
+        strokeCount:
+          type: integer
+        createdAt:
+          type: string
+          format: date-time
+
+    ApiErrorResponse:
+      type: object
+      required:
+        - success
+        - error
+      properties:
+        success:
+          type: boolean
+          example: false
+        error:
+          type: object
+          required:
+            - code
+            - message
+          properties:
+            code:
+              type: string
+              example: VALIDATION_ERROR
+            message:
+              type: string
+              example: Drawing payload exceeds maximum allowed size of 2MB
+            details:
+              type: object
+              additionalProperties: true
