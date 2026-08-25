@@ -23,6 +23,7 @@ export const joinRoomSchema = z.object({
 
 export const submitTitleSchema = z.object({
   stage_id: z.string().uuid('Invalid stage ID'),
+  matchup_id: z.string().uuid('Invalid matchup ID').optional(),
   title: z
     .string()
     .trim()
@@ -32,6 +33,7 @@ export const submitTitleSchema = z.object({
 
 export const submitVoteSchema = z.object({
   stage_id: z.string().uuid('Invalid stage ID'),
+  matchup_id: z.string().uuid('Invalid matchup ID').optional(),
   submission_id: z.string().uuid('Invalid submission ID'),
 });
 

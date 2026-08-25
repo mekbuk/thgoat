@@ -54,6 +54,7 @@ CREATE TABLE IF NOT EXISTS public.rooms (
     host_player_id UUID,
     phase VARCHAR(20) NOT NULL DEFAULT 'LOBBY' CHECK (phase IN ('LOBBY', 'SUBMITTING', 'VOTING', 'RESULTS', 'FINISHED')),
     current_stage_number INTEGER NOT NULL DEFAULT 1,
+    current_matchup_index INTEGER NOT NULL DEFAULT 0,
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
@@ -98,34 +99,48 @@ CREATE TABLE IF NOT EXISTS public.stages (
     game_id UUID NOT NULL REFERENCES public.games(id) ON DELETE CASCADE,
     room_id UUID NOT NULL REFERENCES public.rooms(id) ON DELETE CASCADE,
     stage_number INTEGER NOT NULL CHECK (stage_number IN (1, 2)),
-    picture_id UUID NOT NULL REFERENCES public.pictures(id),
+    picture_id UUID REFERENCES public.pictures(id),
     phase VARCHAR(20) NOT NULL DEFAULT 'SUBMITTING' CHECK (phase IN ('SUBMITTING', 'VOTING', 'RESULTS')),
+    current_matchup_index INTEGER NOT NULL DEFAULT 0,
     started_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     completed_at TIMESTAMPTZ,
     CONSTRAINT uq_game_stage_number UNIQUE (game_id, stage_number)
 );
 
--- 8. Submissions
+-- 8. Stage Matchups (1v1 Paired Image Prompts)
+CREATE TABLE IF NOT EXISTS public.stage_matchups (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    stage_id UUID NOT NULL REFERENCES public.stages(id) ON DELETE CASCADE,
+    order_index INTEGER NOT NULL DEFAULT 0,
+    picture_id UUID NOT NULL REFERENCES public.pictures(id),
+    player1_id UUID NOT NULL REFERENCES public.players(id) ON DELETE CASCADE,
+    player2_id UUID NOT NULL REFERENCES public.players(id) ON DELETE CASCADE,
+    is_revealed BOOLEAN NOT NULL DEFAULT FALSE,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    CONSTRAINT uq_stage_matchup_order UNIQUE (stage_id, order_index)
+);
+
+-- 9. Submissions
 CREATE TABLE IF NOT EXISTS public.submissions (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     stage_id UUID NOT NULL REFERENCES public.stages(id) ON DELETE CASCADE,
+    matchup_id UUID REFERENCES public.stage_matchups(id) ON DELETE CASCADE,
     player_id UUID NOT NULL REFERENCES public.players(id) ON DELETE CASCADE,
     title VARCHAR(100) NOT NULL,
-    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    CONSTRAINT uq_stage_player_submission UNIQUE (stage_id, player_id)
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
--- 9. Votes
+-- 10. Votes
 CREATE TABLE IF NOT EXISTS public.votes (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     stage_id UUID NOT NULL REFERENCES public.stages(id) ON DELETE CASCADE,
+    matchup_id UUID REFERENCES public.stage_matchups(id) ON DELETE CASCADE,
     voter_player_id UUID NOT NULL REFERENCES public.players(id) ON DELETE CASCADE,
     submission_id UUID NOT NULL REFERENCES public.submissions(id) ON DELETE CASCADE,
-    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    CONSTRAINT uq_stage_voter_vote UNIQUE (stage_id, voter_player_id)
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
--- 10. Stage Scores
+-- 11. Stage Scores
 CREATE TABLE IF NOT EXISTS public.stage_scores (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     stage_id UUID NOT NULL REFERENCES public.stages(id) ON DELETE CASCADE,
@@ -134,16 +149,18 @@ CREATE TABLE IF NOT EXISTS public.stage_scores (
     votes_received INTEGER NOT NULL DEFAULT 0,
     is_winner BOOLEAN NOT NULL DEFAULT FALSE,
     points_awarded INTEGER NOT NULL DEFAULT 0,
-    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    CONSTRAINT uq_stage_player_score UNIQUE (stage_id, player_id)
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
 -- Indexes for query performance
 CREATE INDEX IF NOT EXISTS idx_players_room_id ON public.players(room_id);
 CREATE INDEX IF NOT EXISTS idx_players_session_token ON public.players(session_token);
 CREATE INDEX IF NOT EXISTS idx_stages_room_id ON public.stages(room_id);
+CREATE INDEX IF NOT EXISTS idx_stage_matchups_stage_id ON public.stage_matchups(stage_id);
 CREATE INDEX IF NOT EXISTS idx_submissions_stage_id ON public.submissions(stage_id);
+CREATE INDEX IF NOT EXISTS idx_submissions_matchup_id ON public.submissions(matchup_id);
 CREATE INDEX IF NOT EXISTS idx_votes_stage_id ON public.votes(stage_id);
+CREATE INDEX IF NOT EXISTS idx_votes_matchup_id ON public.votes(matchup_id);
 CREATE INDEX IF NOT EXISTS idx_votes_submission_id ON public.votes(submission_id);
 CREATE INDEX IF NOT EXISTS idx_stage_scores_stage_id ON public.stage_scores(stage_id);
 
@@ -152,6 +169,7 @@ ALTER TABLE public.rooms ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.players ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.games ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.stages ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.stage_matchups ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.pictures ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.submissions ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.votes ENABLE ROW LEVEL SECURITY;
@@ -174,6 +192,9 @@ DO $$ BEGIN
     IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE tablename = 'stages' AND policyname = 'Public read for stages') THEN
         CREATE POLICY "Public read for stages" ON public.stages FOR SELECT USING (true);
     END IF;
+    IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE tablename = 'stage_matchups' AND policyname = 'Public read for stage_matchups') THEN
+        CREATE POLICY "Public read for stage_matchups" ON public.stage_matchups FOR SELECT USING (true);
+    END IF;
     IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE tablename = 'submissions' AND policyname = 'Public read for submissions') THEN
         CREATE POLICY "Public read for submissions" ON public.submissions FOR SELECT USING (true);
     END IF;
@@ -185,11 +206,14 @@ DO $$ BEGIN
     END IF;
 END $$;
 
--- 11. Initial Picture Catalog Seed
+-- 12. Initial Picture Catalog Seed
 INSERT INTO public.pictures (id, image_url, description, is_active) VALUES
 ('11111111-1111-1111-1111-111111111111', 'https://images.unsplash.com/photo-1590246814883-5783515fb27c?auto=format&fit=crop&w=800&q=80', 'A terrifyingly wonky dragon with cross-eyes and uneven wings', TRUE),
-('22222222-2222-2222-2222-222222222222', 'https://images.unsplash.com/photo-1598371839696-5c5bb00bdc28?auto=format&fit=crop&w=800&q=80', 'A mispelled inspirational quote that says "No Ragrets Ever"', TRUE),
+('22222222-2222-2222-2222-222222222222', 'https://images.unsplash.com/photo-1598371839696-5c5bb00bdc28?auto=format&fit=crop&w=800&q=80', 'A misspelled inspirational quote that says "No Ragrets Ever"', TRUE),
 ('33333333-3333-3333-3333-333333333333', 'https://images.unsplash.com/photo-1611501275019-9b5cda994e8d?auto=format&fit=crop&w=800&q=80', 'A portrait of a celebrity that ended up looking like a melting potato', TRUE),
 ('44444444-4444-4444-4444-444444444444', 'https://images.unsplash.com/photo-1562962230-16e4623d36e6?auto=format&fit=crop&w=800&q=80', 'A hyper-realistic taco with human legs and sunglasses', TRUE),
-('55555555-5555-5555-5555-555555555555', 'https://images.unsplash.com/photo-1568515045052-f9a854d70bfd?auto=format&fit=crop&w=800&q=80', 'A tribal dolphin giving a thumbs up wearing a top hat', TRUE)
+('55555555-5555-5555-5555-555555555555', 'https://images.unsplash.com/photo-1560707303-4e980ce876ad?auto=format&fit=crop&w=800&q=80', 'A cat with six arms holding cups of coffee and crying', TRUE),
+('66666666-6666-6666-6666-666666666666', 'https://images.unsplash.com/photo-1578301978693-85fa9c0320b9?auto=format&fit=crop&w=800&q=80', 'A majestic lion tattoo that looks surprisingly like Nicholas Cage', TRUE),
+('77777777-7777-7777-7777-777777777777', 'https://images.unsplash.com/photo-1542385151-efd9000785a0?auto=format&fit=crop&w=800&q=80', 'An anatomically questionable skull wearing propeller beanie', TRUE),
+('88888888-8888-8888-8888-888888888888', 'https://images.unsplash.com/photo-1568515045052-f9a854d70bfd?auto=format&fit=crop&w=800&q=80', 'A butterfly tattoo that accidentally looks like a juicy steak', TRUE)
 ON CONFLICT (id) DO NOTHING;

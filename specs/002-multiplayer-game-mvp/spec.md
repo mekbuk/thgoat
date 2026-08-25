@@ -31,52 +31,56 @@ A player visits the landing page, either creates a new room as host or enters an
 
 ---
 
-### User Story 2 - Picture-Title Submission Flow across 2 Stages (Priority: P1)
+### User Story 2 - Paired Picture-Title Submission Flow across 2 Stages (Priority: P1)
 
-Upon entering each stage (Stage 1 and Stage 2), all players are presented with a curated tattoo picture and prompt task ("Give this tattoo your funniest title."). Each player types their creative title into a text field (max 100 characters) and submits it. Once submitted, the player sees a "Waiting for other players..." status indicator, and cannot edit their submission. When all active players have submitted, the room automatically advances to the voting phase.
+Upon entering each stage (Stage 1 and Stage 2), the system generates 1v1 paired matchups. Each player is assigned exactly 2 distinct tattoo pictures to title in a step-by-step submission flow (Prompt 1 of 2 -> Prompt 2 of 2). Two random people in the room are prompted to title the same picture. Each player types their creative title into a text field (max 100 characters) and submits it. Once both titles are submitted, the player enters the waiting state. When all active players have submitted both titles, the room automatically advances to head-to-head voting.
 
-**Why this priority**: Title submissions are the core creative gameplay mechanic and the necessary prerequisite for voting and scoring.
+**Why this priority**: Paired title submissions create the head-to-head comedic tension between two competing players per picture.
 
 **Independent Test**:
 - Transition room to Stage 1 `SUBMITTING`.
-- Verify the stage tattoo image is displayed prominently on all clients with the prompt task.
-- Submit titles from Player 1, Player 2, and Player 3.
-- Verify each player sees submission confirmation and cannot edit or resubmit.
-- Verify the server advances the room to `VOTING` as soon as the final player submits.
+- Verify each player is assigned 2 prompt images.
+- Verify each picture is assigned to exactly 2 distinct players.
+- Submit titles from all players for their assigned images.
+- Verify the server advances the room to `VOTING` as soon as all titles are submitted.
 
 **Acceptance Scenarios**:
-1. **Given** a room entering `SUBMITTING`, **When** a player views the screen, **Then** they see the stage number ("Stage 1 of 2"), the curated tattoo picture, the task text, a character-counted input field, and a submit button.
-2. **Given** an empty title input, **When** the player clicks "Submit", **Then** the UI prevents submission and prompts the user to type a title.
-3. **Given** a player enters a valid title and submits, **When** the server accepts the submission, **Then** the player's UI transitions to a pending state ("Title locked in! Waiting for [N] players...") and input controls are disabled.
-4. **Given** 3 players in the room, **When** the 3rd and final player submits their title, **Then** the room phase atomically transitions to `VOTING` and broadcasts the transition to all players.
+1. **Given** a room entering `SUBMITTING`, **When** a player views the screen, **Then** they see their first assigned tattoo picture with step indicator ("Prompt 1 of 2"), character-counted input field, and submit button.
+2. **Given** a player submits their first title, **When** the server accepts it, **Then** the UI advances smoothly to their second assigned tattoo picture ("Prompt 2 of 2").
+3. **Given** a player completes both titles, **When** both are submitted, **Then** the player sees "Both Titles Locked In!" and preview chips of their submissions.
+4. **Given** all players have submitted both titles, **When** the final submission is received, **Then** the room automatically transitions to `VOTING` on Matchup 1.
 
 ---
 
-### User Story 3 - Anonymized, Self-Excluding Voting Phase (Priority: P1)
+### User Story 3 - 1v1 Matchup Head-to-Head Voting & Self-Exclusion (Priority: P1)
 
-Once all submissions for the stage are received, the game enters the `VOTING` phase. Each player sees the tattoo picture and a randomized list of all submitted titles **excluding their own submission**. Each player selects one title they find funniest and submits their vote. A player cannot vote for themselves, cannot vote more than once, and cannot change their vote once submitted. When all eligible votes are cast, the room advances to results.
+In the `VOTING` phase, the room progresses through each picture matchup one-by-one. For each matchup:
+- The 2 authors of the matchup are spectating ("You're in this battle! Sit back and watch the room vote!").
+- All other players in the room see the tattoo picture and the 2 competing titles (randomized as Option A vs Option B) and cast their vote for the funniest title.
+- When all eligible room voters have cast their votes, the matchup automatically flips to `REVEALED` with dramatic reveal animations, author reveals, vote percentages, points awarded, and "Throat Goat Sweep" bonuses (+100 extra pts for sweeps).
+- The host clicks "Next Matchup" to advance to the next picture battle.
 
-**Why this priority**: Fair voting guarantees player engagement and round integrity; strict self-vote exclusion prevents malicious or collusive vote farming.
+**Why this priority**: Matchup-by-matchup synchronized voting delivers the classic party-game showdown excitement and shared room laughter.
 
 **Independent Test**:
-- Transition room with 3 players (A, B, C) into `VOTING`.
-- Verify Player A sees only titles from B and C (Player A's title is excluded).
-- Verify Player B sees only titles from A and C.
-- Cast votes for each player.
-- Verify server blocks any injected payload attempting to vote for one's own submission ID.
-- Verify room automatically transitions to `RESULTS` once all active voters have voted.
+- Transition room with 3 players (A, B, C) into `VOTING` Matchup 1 (A vs B).
+- Verify Player A and Player B see the author spectator state and cannot vote.
+- Verify Player C sees Option A vs Option B and casts the deciding vote.
+- Verify matchup reveals results, author identities, and score points immediately upon the final vote.
+- Verify host can click "Next Matchup" to proceed to Matchup 2.
 
 **Acceptance Scenarios**:
-1. **Given** a player in `VOTING` phase, **When** the voting list renders, **Then** all peer submissions are displayed anonymously in randomized order, and the player's own submission is omitted from their options.
-2. **Given** a voting player selects an option and clicks "Vote", **When** the server validates the vote, **Then** the choice is locked, the UI displays "Vote recorded! Waiting for others...", and cannot be modified.
-3. **Given** a malicious client attempts to send a vote for their own submission ID, **When** the server receives the request, **Then** the server rejects the vote with HTTP 400 / validation error and does not record the vote.
-4. **Given** all players have voted, **When** the last vote is registered, **Then** the server triggers stage resolution and transitions to `RESULTS`.
+1. **Given** Matchup $k$ in `VOTING`, **When** an author of the matchup views the screen, **Then** they see a spectator card with live voting progress and cannot cast a vote.
+2. **Given** Matchup $k$ in `VOTING`, **When** an eligible non-author views the screen, **Then** they see the 2 competing titles anonymously and can lock in a vote.
+3. **Given** all eligible voters have voted on Matchup $k$, **When** the final vote registers, **Then** the matchup reveals the author identities, vote breakdown, winner crown, and points awarded.
+4. **Given** the host clicks "Next Matchup", **When** all matchups in the stage conclude, **Then** the room transitions to `RESULTS` (Round Standings Summary).
 
 ---
 
-### User Story 4 - Stage Results, Vote Breakdown, and Scoring (Priority: P1)
+### User Story 4 - Stage Results, Standings Summary, and Scoring (Priority: P1)
 
-In the `RESULTS` phase, the system reveals the vote tally for each submission along with the author's identity. The title(s) receiving the highest number of votes is declared the stage winner. Scores are updated authoritatively (+100 points per vote received + 250 bonus points for winning the stage). If multiple submissions tie for the highest votes, all tied authors are awarded the round winner bonus. After an 8-second viewing timer or when the host clicks "Next", Stage 1 advances to Stage 2, or Stage 2 advances to the Final Leaderboard.
+After all matchups in a stage conclude, the room enters `RESULTS` (Round Standings Summary). The screen displays the updated room scoreboard / standings alongside recaps of all matchups from that round. Scores accumulate authoritatively (+100 pts per vote received + 250 bonus points for winning a matchup + 100 bonus points for a sweep). The host clicks "Continue to Stage 2" (after Stage 1) or "View Final Leaderboard" (after Stage 2).
+
 
 **Why this priority**: Instant feedback and score accumulation create the core comedic payoff and competitive momentum of the game.
 

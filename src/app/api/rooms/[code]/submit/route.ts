@@ -28,7 +28,8 @@ export async function POST(
       code,
       sessionToken,
       parsed.data.stage_id,
-      parsed.data.title
+      parsed.data.title,
+      parsed.data.matchup_id
     );
 
     return NextResponse.json(result, { status: 200 });

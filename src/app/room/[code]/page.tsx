@@ -28,7 +28,7 @@ export default function RoomPage({ params }: { params: Promise<{ code: string }>
 
   const [isAdminOpen, setIsAdminOpen] = useState(false);
 
-  // Listen for Ctrl+Alt+R keyboard shortcut
+  // Listen for Ctrl+Alt+R keyboard shortcut for admin modal
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       if ((e.ctrlKey || e.metaKey) && e.altKey && (e.key === 'r' || e.key === 'R' || e.code === 'KeyR')) {
@@ -87,7 +87,7 @@ export default function RoomPage({ params }: { params: Promise<{ code: string }>
     await refreshState();
   };
 
-  const handleSubmitTitle = async (title: string) => {
+  const handleSubmitTitle = async (matchupId: string, title: string) => {
     if (!sessionToken || !state.current_stage) return;
     const res = await fetch(`/api/rooms/${code}/submit`, {
       method: 'POST',
@@ -97,6 +97,7 @@ export default function RoomPage({ params }: { params: Promise<{ code: string }>
       },
       body: JSON.stringify({
         stage_id: state.current_stage.stage_id,
+        matchup_id: matchupId,
         title,
       }),
     });
@@ -112,7 +113,7 @@ export default function RoomPage({ params }: { params: Promise<{ code: string }>
     await refreshState();
   };
 
-  const handleCastVote = async (submissionId: string) => {
+  const handleCastVote = async (matchupId: string, submissionId: string) => {
     if (!sessionToken || !state.current_stage) return;
     const res = await fetch(`/api/rooms/${code}/vote`, {
       method: 'POST',
@@ -122,16 +123,43 @@ export default function RoomPage({ params }: { params: Promise<{ code: string }>
       },
       body: JSON.stringify({
         stage_id: state.current_stage.stage_id,
+        matchup_id: matchupId,
         submission_id: submissionId,
       }),
     });
     const data = await res.json();
     if (!res.ok) throw new Error(data.error || 'Failed to submit vote');
 
+    if (data.is_revealed && data.result) {
+      await broadcastEvent({
+        type: 'matchup_revealed',
+        payload: { matchup_id: matchupId, result: data.result },
+      });
+    }
+    await refreshState();
+  };
+
+  const handleAdvanceMatchup = async () => {
+    if (!sessionToken) return;
+    const res = await fetch(`/api/rooms/${code}/advance-matchup`, {
+      method: 'POST',
+      headers: { 'x-session-token': sessionToken },
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || 'Failed to advance matchup');
+
     if (data.phase === 'RESULTS') {
       await broadcastEvent({
         type: 'room_phase_changed',
         payload: { phase: 'RESULTS', current_stage_number: state.current_stage_number },
+      });
+    } else {
+      await broadcastEvent({
+        type: 'matchup_advanced',
+        payload: {
+          current_matchup_index: data.current_matchup_index,
+          total_matchups: data.total_matchups,
+        },
       });
     }
     await refreshState();
@@ -205,28 +233,30 @@ export default function RoomPage({ params }: { params: Promise<{ code: string }>
         {state.phase === 'SUBMITTING' && state.current_stage && (
           <SubmissionPhase
             stage={state.current_stage}
+            prompts={state.my_prompts}
             hasSubmitted={state.me?.has_submitted || false}
             onSubmitTitle={handleSubmitTitle}
-            totalSubmitted={state.players.filter((p) => p.is_connected).length}
+            totalSubmitted={state.players.reduce((acc, p) => acc + (p.is_connected ? 1 : 0), 0)}
             totalRequired={state.players.filter((p) => p.is_connected).length}
           />
         )}
 
-        {state.phase === 'VOTING' && state.current_stage && (
+        {state.phase === 'VOTING' && (
           <VotingPhase
             stage={state.current_stage}
-            votingOptions={state.voting_options}
-            hasVoted={state.me?.has_voted || false}
+            currentMatchup={state.current_matchup}
+            isHost={isHost}
             onCastVote={handleCastVote}
-            totalVoted={state.players.filter((p) => p.is_connected).length}
-            totalRequired={state.players.filter((p) => p.is_connected).length}
+            onAdvanceMatchup={handleAdvanceMatchup}
           />
         )}
 
         {state.phase === 'RESULTS' && (
           <ResultsPhase
             stageNumber={state.current_stage_number}
+            matchupResults={state.stage_matchup_results}
             results={state.stage_results}
+            players={state.players}
             isHost={isHost}
             onAdvanceStage={handleAdvanceStage}
           />

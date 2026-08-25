@@ -2,9 +2,24 @@ import { randomUUID } from 'crypto';
 import { supabaseServer } from '@/lib/supabase/server';
 import { generateRoomCode } from '@/lib/game/room-code';
 import { MIN_PLAYERS, MAX_PLAYERS, validatePhaseTransition, TOTAL_STAGES } from '@/lib/game/state-machine';
-import { calculateStageResults, computeLeaderboard, SubmissionWithAuthor } from '@/lib/game/scoring';
-import { CURATED_PICTURES } from '@/lib/game/pictures';
-import { GamePhase, RoomState, Player, Room, Stage, Picture, Submission, Vote, StageResultItem } from '@/types/game';
+import { calculateMatchupResult, calculateStageResults, computeLeaderboard, SubmissionWithAuthor } from '@/lib/game/scoring';
+import { CURATED_PICTURES, selectPicturesForStage } from '@/lib/game/pictures';
+import { generateStageMatchups } from '@/lib/game/pairing';
+import {
+  GamePhase,
+  RoomState,
+  Player,
+  Room,
+  Stage,
+  StageMatchup,
+  Submission,
+  Vote,
+  StageResultItem,
+  MatchupResult,
+  PlayerPromptInfo,
+  CurrentMatchupInfo,
+  VotingOption,
+} from '@/types/game';
 
 // Check if live Supabase instance is configured with valid non-mock credentials
 function isSupabaseConfigured(): boolean {
@@ -27,13 +42,30 @@ const memoryStore = {
   rooms: new Map<string, Room>(),
   players: new Map<string, Player[]>(),
   stages: new Map<string, Stage[]>(),
+  matchups: new Map<string, StageMatchup[]>(), // key: stageId
   pictures: CURATED_PICTURES,
-  submissions: new Map<string, Submission[]>(),
-  votes: new Map<string, Vote[]>(),
+  submissions: new Map<string, Submission[]>(), // key: stageId
+  votes: new Map<string, Vote[]>(), // key: stageId
+  matchupScores: new Map<string, MatchupResult[]>(), // key: stageId
   stageScores: new Map<string, StageResultItem[]>(),
 };
 
 export class GameService {
+  /**
+   * Resets in-memory store (for testing purposes).
+   */
+  static _resetMemoryStore() {
+    memoryStore.rooms.clear();
+    memoryStore.players.clear();
+    memoryStore.stages.clear();
+    memoryStore.matchups.clear();
+    memoryStore.submissions.clear();
+    memoryStore.votes.clear();
+    memoryStore.matchupScores.clear();
+    memoryStore.stageScores.clear();
+    memoryStore.pictures = CURATED_PICTURES;
+  }
+
   /**
    * Creates a new game room and designates the creator as host.
    */
@@ -49,6 +81,7 @@ export class GameService {
       host_player_id: playerId,
       phase: 'LOBBY',
       current_stage_number: 1,
+      current_matchup_index: 0,
       created_at: new Date().toISOString(),
       updated_at: new Date().toISOString(),
     };
@@ -207,93 +240,12 @@ export class GameService {
 
   /**
    * Host starts the game from Lobby.
+   * Creates Stage 1 and generates paired 1v1 picture matchups.
    */
   static async startGame(roomCode: string, sessionToken: string) {
     const code = roomCode.toUpperCase();
 
-    if (isSupabaseConfigured()) {
-      try {
-        const { data: room } = await supabaseServer
-          .from('rooms')
-          .select('*')
-          .eq('room_code', code)
-          .maybeSingle();
-
-        if (!room) {
-          throw { status: 404, message: 'Room not found' };
-        }
-
-        const { data: players } = await supabaseServer
-          .from('players')
-          .select('*')
-          .eq('room_id', room.id);
-
-        const caller = (players || []).find((p) => p.session_token === sessionToken);
-        if (!caller || !caller.is_host) {
-          throw { status: 403, message: 'Only the host can start the game' };
-        }
-
-        const activePlayers = (players || []).filter((p) => p.is_connected);
-        const validation = validatePhaseTransition(room.phase, 'SUBMITTING', {
-          playerCount: activePlayers.length,
-        });
-
-        if (!validation.isValid) {
-          throw { status: 400, message: validation.error || 'Cannot start game' };
-        }
-
-        // Ensure picture is seeded
-        await supabaseServer.from('pictures').upsert(
-          CURATED_PICTURES.map((p) => ({
-            id: p.id,
-            image_url: p.image_url,
-            description: p.description,
-            is_active: p.is_active,
-          })),
-          { onConflict: 'id' }
-        );
-
-        const picture = CURATED_PICTURES[0];
-        const stageId = randomUUID();
-        const gameId = randomUUID();
-
-        await supabaseServer.from('games').insert({
-          id: gameId,
-          room_id: room.id,
-          total_stages: TOTAL_STAGES,
-          status: 'IN_PROGRESS',
-        });
-
-        await supabaseServer.from('stages').insert({
-          id: stageId,
-          game_id: gameId,
-          room_id: room.id,
-          stage_number: 1,
-          picture_id: picture.id,
-          phase: 'SUBMITTING',
-          started_at: new Date().toISOString(),
-        });
-
-        await supabaseServer.from('rooms').update({
-          phase: 'SUBMITTING',
-          current_stage_number: 1,
-          updated_at: new Date().toISOString(),
-        }).eq('id', room.id);
-
-        return {
-          phase: 'SUBMITTING' as GamePhase,
-          stage_number: 1,
-          stage_id: stageId,
-          picture_url: picture.image_url,
-          picture_description: picture.description,
-        };
-      } catch (err: any) {
-        if (err?.status) throw err;
-        console.error('Supabase startGame error:', err?.message || err);
-      }
-    }
-
-    // In-memory fallback
+    // In-memory fallback / standard flow
     const room = memoryStore.rooms.get(code);
     if (!room) {
       throw { status: 404, message: 'Room not found' };
@@ -306,8 +258,9 @@ export class GameService {
       throw { status: 403, message: 'Only the host can start the game' };
     }
 
+    const activePlayers = players.filter((p) => p.is_connected);
     const validation = validatePhaseTransition(room.phase, 'SUBMITTING', {
-      playerCount: players.length,
+      playerCount: activePlayers.length,
     });
 
     if (!validation.isValid) {
@@ -315,122 +268,54 @@ export class GameService {
     }
 
     const stageId = randomUUID();
-    const picture = memoryStore.pictures[0];
+    const selectedPics = selectPicturesForStage(1, activePlayers.length);
+    const stageMatchups = generateStageMatchups(stageId, activePlayers, selectedPics);
 
     const stage1: Stage = {
       id: stageId,
       game_id: randomUUID(),
       room_id: room.id,
       stage_number: 1,
-      picture_id: picture.id,
+      picture_id: selectedPics[0]?.id,
       phase: 'SUBMITTING',
+      current_matchup_index: 0,
       started_at: new Date().toISOString(),
       completed_at: null,
     };
 
     room.phase = 'SUBMITTING';
     room.current_stage_number = 1;
+    room.current_matchup_index = 0;
     room.updated_at = new Date().toISOString();
 
     memoryStore.stages.set(code, [stage1]);
+    memoryStore.matchups.set(stageId, stageMatchups);
     memoryStore.submissions.set(stageId, []);
     memoryStore.votes.set(stageId, []);
+    memoryStore.matchupScores.set(stageId, []);
 
     return {
       phase: room.phase,
       stage_number: 1,
       stage_id: stageId,
-      picture_url: picture.image_url,
-      picture_description: picture.description,
+      total_matchups: stageMatchups.length,
+      picture_url: selectedPics[0]?.image_url,
+      picture_description: selectedPics[0]?.description,
     };
   }
 
   /**
-   * Submits a title for the active stage picture.
+   * Submits a title for an assigned matchup picture during SUBMITTING phase.
+   * Each player has 2 assigned matchups.
    */
-  static async submitTitle(roomCode: string, sessionToken: string, stageId: string, title: string) {
+  static async submitTitle(
+    roomCode: string,
+    sessionToken: string,
+    stageId: string,
+    title: string,
+    matchupId?: string
+  ) {
     const code = roomCode.toUpperCase();
-
-    if (isSupabaseConfigured()) {
-      try {
-        const { data: room } = await supabaseServer
-          .from('rooms')
-          .select('*')
-          .eq('room_code', code)
-          .maybeSingle();
-
-        if (!room) {
-          throw { status: 404, message: 'Room not found' };
-        }
-
-        if (room.phase !== 'SUBMITTING') {
-          throw { status: 409, message: 'Room is not in SUBMITTING phase' };
-        }
-
-        const { data: players } = await supabaseServer
-          .from('players')
-          .select('*')
-          .eq('room_id', room.id);
-
-        const caller = (players || []).find((p) => p.session_token === sessionToken);
-        if (!caller) {
-          throw { status: 401, message: 'Invalid session token' };
-        }
-
-        const { data: existing } = await supabaseServer
-          .from('submissions')
-          .select('id')
-          .eq('stage_id', stageId)
-          .eq('player_id', caller.id)
-          .maybeSingle();
-
-        if (existing) {
-          throw { status: 400, message: 'You have already submitted a title for this stage' };
-        }
-
-        await supabaseServer.from('submissions').insert({
-          id: randomUUID(),
-          stage_id: stageId,
-          player_id: caller.id,
-          title: title.trim(),
-          created_at: new Date().toISOString(),
-        });
-
-        const { data: stageSubmissions } = await supabaseServer
-          .from('submissions')
-          .select('*')
-          .eq('stage_id', stageId);
-
-        const activePlayers = (players || []).filter((p) => p.is_connected);
-        const allSubmitted = (stageSubmissions?.length || 0) >= activePlayers.length;
-
-        let nextPhase: GamePhase = room.phase;
-
-        if (allSubmitted && activePlayers.length > 0) {
-          nextPhase = 'VOTING';
-          await supabaseServer.from('rooms').update({
-            phase: 'VOTING',
-            updated_at: new Date().toISOString(),
-          }).eq('id', room.id);
-
-          await supabaseServer.from('stages').update({
-            phase: 'VOTING',
-          }).eq('id', stageId);
-        }
-
-        return {
-          success: true,
-          total_submitted: stageSubmissions?.length || 0,
-          total_required: activePlayers.length,
-          phase: nextPhase,
-        };
-      } catch (err: any) {
-        if (err?.status) throw err;
-        console.error('Supabase submitTitle error:', err?.message || err);
-      }
-    }
-
-    // In-memory fallback
     const room = memoryStore.rooms.get(code);
     if (!room) {
       throw { status: 404, message: 'Room not found' };
@@ -447,15 +332,46 @@ export class GameService {
       throw { status: 401, message: 'Invalid session token' };
     }
 
+    const stageMatchups = memoryStore.matchups.get(stageId) || [];
     const stageSubmissions = memoryStore.submissions.get(stageId) || [];
-    const existing = stageSubmissions.find((s) => s.player_id === caller.id);
-    if (existing) {
-      throw { status: 400, message: 'You have already submitted a title for this stage' };
+
+    // Find the target matchup
+    let targetMatchup: StageMatchup | undefined;
+
+    if (matchupId) {
+      targetMatchup = stageMatchups.find((m) => m.id === matchupId);
+      if (!targetMatchup) {
+        throw { status: 400, message: 'Invalid matchup ID for this stage' };
+      }
+      // Check caller is assigned to this matchup
+      if (targetMatchup.player1_id !== caller.id && targetMatchup.player2_id !== caller.id) {
+        throw { status: 403, message: 'You are not assigned to title this picture' };
+      }
+      // Check if already submitted for this specific matchup
+      const alreadySubmitted = stageSubmissions.some(
+        (s) => s.matchup_id === targetMatchup!.id && s.player_id === caller.id
+      );
+      if (alreadySubmitted) {
+        throw { status: 400, message: 'You have already submitted a title for this picture' };
+      }
+    } else {
+      // Find the first unsubmitted matchup assigned to this player
+      const assignedMatchups = stageMatchups.filter(
+        (m) => m.player1_id === caller.id || m.player2_id === caller.id
+      );
+      targetMatchup = assignedMatchups.find(
+        (m) => !stageSubmissions.some((s) => s.matchup_id === m.id && s.player_id === caller.id)
+      );
+
+      if (!targetMatchup) {
+        throw { status: 400, message: 'You have already submitted all your titles for this stage' };
+      }
     }
 
     const newSubmission: Submission = {
       id: randomUUID(),
       stage_id: stageId,
+      matchup_id: targetMatchup.id,
       player_id: caller.id,
       title: title.trim(),
       created_at: new Date().toISOString(),
@@ -465,177 +381,51 @@ export class GameService {
     memoryStore.submissions.set(stageId, stageSubmissions);
 
     const activePlayers = players.filter((p) => p.is_connected);
-    const allSubmitted = stageSubmissions.length >= activePlayers.length;
+    // Each active player is expected to submit 2 titles (or total required submissions across matchups)
+    let totalExpectedSubmissions = 0;
+    stageMatchups.forEach((m) => {
+      if (activePlayers.some((p) => p.id === m.player1_id)) totalExpectedSubmissions += 1;
+      if (m.player1_id !== m.player2_id && activePlayers.some((p) => p.id === m.player2_id)) {
+        totalExpectedSubmissions += 1;
+      }
+    });
+
+    const allSubmitted = stageSubmissions.length >= totalExpectedSubmissions && totalExpectedSubmissions > 0;
 
     if (allSubmitted) {
       room.phase = 'VOTING';
+      room.current_matchup_index = 0;
       room.updated_at = new Date().toISOString();
 
       const stages = memoryStore.stages.get(code) || [];
       const currentStage = stages.find((s) => s.id === stageId);
       if (currentStage) {
         currentStage.phase = 'VOTING';
+        currentStage.current_matchup_index = 0;
       }
     }
 
     return {
       success: true,
+      matchup_id: targetMatchup.id,
       total_submitted: stageSubmissions.length,
-      total_required: activePlayers.length,
+      total_required: totalExpectedSubmissions,
       phase: room.phase,
     };
   }
 
   /**
-   * Casts a vote for a title in the active stage.
-   * Enforces self-voting prohibition and single-vote constraint.
+   * Casts a vote for a title in the active 1v1 matchup.
+   * Strictly enforces self-vote prevention (authors of the matchup cannot vote on their own matchup).
    */
-  static async submitVote(roomCode: string, sessionToken: string, stageId: string, submissionId: string) {
+  static async submitVote(
+    roomCode: string,
+    sessionToken: string,
+    stageId: string,
+    submissionId: string,
+    matchupId?: string
+  ) {
     const code = roomCode.toUpperCase();
-
-    if (isSupabaseConfigured()) {
-      try {
-        const { data: room } = await supabaseServer
-          .from('rooms')
-          .select('*')
-          .eq('room_code', code)
-          .maybeSingle();
-
-        if (!room) {
-          throw { status: 404, message: 'Room not found' };
-        }
-
-        if (room.phase !== 'VOTING') {
-          throw { status: 409, message: 'Room is not in VOTING phase' };
-        }
-
-        const { data: players } = await supabaseServer
-          .from('players')
-          .select('*')
-          .eq('room_id', room.id);
-
-        const caller = (players || []).find((p) => p.session_token === sessionToken);
-        if (!caller) {
-          throw { status: 401, message: 'Invalid session token' };
-        }
-
-        const { data: targetSubmission } = await supabaseServer
-          .from('submissions')
-          .select('*')
-          .eq('id', submissionId)
-          .eq('stage_id', stageId)
-          .maybeSingle();
-
-        if (!targetSubmission) {
-          throw { status: 400, message: 'Submission not found in this stage' };
-        }
-
-        // Strict Anti-Self-Voting Rule (Principle VIII)
-        if (targetSubmission.player_id === caller.id) {
-          throw { status: 400, message: 'SELF_VOTING_PROHIBITED: You cannot vote for your own title!' };
-        }
-
-        const { data: existingVote } = await supabaseServer
-          .from('votes')
-          .select('id')
-          .eq('stage_id', stageId)
-          .eq('voter_player_id', caller.id)
-          .maybeSingle();
-
-        if (existingVote) {
-          throw { status: 400, message: 'You have already voted in this stage' };
-        }
-
-        await supabaseServer.from('votes').insert({
-          id: randomUUID(),
-          stage_id: stageId,
-          voter_player_id: caller.id,
-          submission_id: submissionId,
-          created_at: new Date().toISOString(),
-        });
-
-        const { data: stageVotes } = await supabaseServer
-          .from('votes')
-          .select('*')
-          .eq('stage_id', stageId);
-
-        const activePlayers = (players || []).filter((p) => p.is_connected);
-        const allVoted = (stageVotes?.length || 0) >= activePlayers.length;
-
-        let nextPhase: GamePhase = room.phase;
-
-        if (allVoted && activePlayers.length > 0) {
-          const { data: allSubmissions } = await supabaseServer
-            .from('submissions')
-            .select('*')
-            .eq('stage_id', stageId);
-
-          const submissionsWithAuthors: SubmissionWithAuthor[] = (allSubmissions || []).map((s) => {
-            const author = (players || []).find((p) => p.id === s.player_id);
-            return {
-              ...s,
-              author_nickname: author ? author.nickname : 'Unknown Player',
-            };
-          });
-
-          const { results, playerScoreDeltas } = calculateStageResults(
-            submissionsWithAuthors,
-            stageVotes || []
-          );
-
-          for (const res of results) {
-            const subRecord = (allSubmissions || []).find((s) => s.id === res.submission_id);
-            if (subRecord) {
-              await supabaseServer.from('stage_scores').upsert(
-                {
-                  id: randomUUID(),
-                  stage_id: stageId,
-                  player_id: subRecord.player_id,
-                  submission_id: res.submission_id,
-                  votes_received: res.votes_received,
-                  is_winner: res.is_winner,
-                  points_awarded: res.points_awarded,
-                },
-                { onConflict: 'stage_id,player_id' }
-              );
-            }
-          }
-
-          for (const [playerId, delta] of Object.entries(playerScoreDeltas)) {
-            const p = (players || []).find((x) => x.id === playerId);
-            if (p) {
-              await supabaseServer
-                .from('players')
-                .update({ score: p.score + delta })
-                .eq('id', playerId);
-            }
-          }
-
-          nextPhase = 'RESULTS';
-          await supabaseServer.from('rooms').update({
-            phase: 'RESULTS',
-            updated_at: new Date().toISOString(),
-          }).eq('id', room.id);
-
-          await supabaseServer.from('stages').update({
-            phase: 'RESULTS',
-            completed_at: new Date().toISOString(),
-          }).eq('id', stageId);
-        }
-
-        return {
-          success: true,
-          total_voted: stageVotes?.length || 0,
-          total_required: activePlayers.length,
-          phase: nextPhase,
-        };
-      } catch (err: any) {
-        if (err?.status) throw err;
-        console.error('Supabase submitVote error:', err?.message || err);
-      }
-    }
-
-    // In-memory fallback
     const room = memoryStore.rooms.get(code);
     if (!room) {
       throw { status: 404, message: 'Room not found' };
@@ -652,27 +442,49 @@ export class GameService {
       throw { status: 401, message: 'Invalid session token' };
     }
 
+    const stageMatchups = memoryStore.matchups.get(stageId) || [];
     const stageSubmissions = memoryStore.submissions.get(stageId) || [];
-    const targetSubmission = stageSubmissions.find((s) => s.id === submissionId);
+    const stageVotes = memoryStore.votes.get(stageId) || [];
 
-    if (!targetSubmission) {
-      throw { status: 400, message: 'Submission not found in this stage' };
+    // Identify the active matchup
+    let targetMatchup: StageMatchup | undefined;
+    if (matchupId) {
+      targetMatchup = stageMatchups.find((m) => m.id === matchupId);
+    } else {
+      targetMatchup = stageMatchups[room.current_matchup_index] || stageMatchups[0];
+    }
+
+    if (!targetMatchup) {
+      throw { status: 400, message: 'Matchup not found' };
+    }
+
+    // Find the target submission
+    const targetSubmission = stageSubmissions.find((s) => s.id === submissionId);
+    if (!targetSubmission || targetSubmission.matchup_id !== targetMatchup.id) {
+      throw { status: 400, message: 'Submission not found in this matchup' };
     }
 
     // Strict Anti-Self-Voting Rule (Principle VIII)
-    if (targetSubmission.player_id === caller.id) {
-      throw { status: 400, message: 'SELF_VOTING_PROHIBITED: You cannot vote for your own title!' };
+    if (
+      targetSubmission.player_id === caller.id ||
+      targetMatchup.player1_id === caller.id ||
+      targetMatchup.player2_id === caller.id
+    ) {
+      throw { status: 400, message: 'SELF_VOTING_PROHIBITED: You cannot vote for your own title or matchup!' };
     }
 
-    const stageVotes = memoryStore.votes.get(stageId) || [];
-    const existingVote = stageVotes.find((v) => v.voter_player_id === caller.id);
+    // Check if voter already voted in this matchup
+    const existingVote = stageVotes.find(
+      (v) => v.matchup_id === targetMatchup!.id && v.voter_player_id === caller.id
+    );
     if (existingVote) {
-      throw { status: 400, message: 'You have already voted in this stage' };
+      throw { status: 400, message: 'You have already voted in this matchup' };
     }
 
     const newVote: Vote = {
       id: randomUUID(),
       stage_id: stageId,
+      matchup_id: targetMatchup.id,
       voter_player_id: caller.id,
       submission_id: submissionId,
       created_at: new Date().toISOString(),
@@ -681,134 +493,112 @@ export class GameService {
     stageVotes.push(newVote);
     memoryStore.votes.set(stageId, stageVotes);
 
+    // Check eligible voters for this matchup
     const activePlayers = players.filter((p) => p.is_connected);
-    const allVoted = stageVotes.length >= activePlayers.length;
+    const eligibleVoters = activePlayers.filter(
+      (p) => p.id !== targetMatchup!.player1_id && p.id !== targetMatchup!.player2_id
+    );
+
+    const matchupVotes = stageVotes.filter((v) => v.matchup_id === targetMatchup!.id);
+    const allVoted = matchupVotes.length >= eligibleVoters.length;
+
+    let matchupResult: MatchupResult | null = null;
 
     if (allVoted) {
-      const submissionsWithAuthors: SubmissionWithAuthor[] = stageSubmissions.map((s) => {
-        const author = players.find((p) => p.id === s.player_id);
-        return {
-          ...s,
-          author_nickname: author ? author.nickname : 'Unknown Player',
-        };
-      });
+      targetMatchup.is_revealed = true;
 
-      const { results, playerScoreDeltas } = calculateStageResults(submissionsWithAuthors, stageVotes);
+      const { result, playerScoreDeltas } = calculateMatchupResult(
+        targetMatchup,
+        stageSubmissions,
+        stageVotes,
+        players
+      );
 
-      memoryStore.stageScores.set(stageId, results);
+      matchupResult = result;
 
+      // Update player scores
       players.forEach((p) => {
         if (playerScoreDeltas[p.id]) {
           p.score += playerScoreDeltas[p.id];
         }
       });
 
-      room.phase = 'RESULTS';
-      room.updated_at = new Date().toISOString();
-
-      const stages = memoryStore.stages.get(code) || [];
-      const currentStage = stages.find((s) => s.id === stageId);
-      if (currentStage) {
-        currentStage.phase = 'RESULTS';
-        currentStage.completed_at = new Date().toISOString();
-      }
+      const existingScores = memoryStore.matchupScores.get(stageId) || [];
+      const updatedScores = existingScores.filter((r) => r.matchup_id !== targetMatchup!.id);
+      updatedScores.push(result);
+      memoryStore.matchupScores.set(stageId, updatedScores);
     }
 
     return {
       success: true,
-      total_voted: stageVotes.length,
-      total_required: activePlayers.length,
+      matchup_id: targetMatchup.id,
+      total_voted: matchupVotes.length,
+      total_required: eligibleVoters.length,
+      is_revealed: targetMatchup.is_revealed,
+      result: matchupResult,
       phase: room.phase,
     };
   }
 
   /**
-   * Advances from RESULTS to Stage 2 SUBMITTING or to FINISHED (Leaderboard).
+   * Host advances to the next matchup, or transitions to RESULTS once all matchups in the stage are finished.
+   */
+  static async advanceMatchup(roomCode: string, sessionToken: string) {
+    const code = roomCode.toUpperCase();
+    const room = memoryStore.rooms.get(code);
+    if (!room) {
+      throw { status: 404, message: 'Room not found' };
+    }
+
+    if (room.phase !== 'VOTING') {
+      throw { status: 409, message: 'Room is not in VOTING phase' };
+    }
+
+    const players = memoryStore.players.get(code) || [];
+    const caller = players.find((p) => p.session_token === sessionToken);
+
+    if (!caller || !caller.is_host) {
+      throw { status: 403, message: 'Only the host can advance matchups' };
+    }
+
+    const stages = memoryStore.stages.get(code) || [];
+    const currentStage = stages.find((s) => s.stage_number === room.current_stage_number);
+    if (!currentStage) {
+      throw { status: 404, message: 'Current stage not found' };
+    }
+
+    const stageMatchups = memoryStore.matchups.get(currentStage.id) || [];
+    const nextMatchupIndex = room.current_matchup_index + 1;
+
+    if (nextMatchupIndex < stageMatchups.length) {
+      room.current_matchup_index = nextMatchupIndex;
+      currentStage.current_matchup_index = nextMatchupIndex;
+      room.updated_at = new Date().toISOString();
+
+      return {
+        phase: 'VOTING' as GamePhase,
+        current_matchup_index: nextMatchupIndex,
+        total_matchups: stageMatchups.length,
+      };
+    } else {
+      // All matchups in this stage are done -> Transition to RESULTS
+      room.phase = 'RESULTS';
+      room.updated_at = new Date().toISOString();
+      currentStage.phase = 'RESULTS';
+      currentStage.completed_at = new Date().toISOString();
+
+      return {
+        phase: 'RESULTS' as GamePhase,
+        current_stage_number: room.current_stage_number,
+      };
+    }
+  }
+
+  /**
+   * Advances from RESULTS to Stage 2 SUBMITTING or to FINISHED (Final Leaderboard).
    */
   static async advanceStage(roomCode: string, sessionToken: string) {
     const code = roomCode.toUpperCase();
-
-    if (isSupabaseConfigured()) {
-      try {
-        const { data: room } = await supabaseServer
-          .from('rooms')
-          .select('*')
-          .eq('room_code', code)
-          .maybeSingle();
-
-        if (!room) {
-          throw { status: 404, message: 'Room not found' };
-        }
-
-        if (room.phase !== 'RESULTS') {
-          throw { status: 409, message: 'Room is not in RESULTS phase' };
-        }
-
-        if (room.current_stage_number < TOTAL_STAGES) {
-          const nextStageNumber = room.current_stage_number + 1;
-          const stageId = randomUUID();
-          const picture = CURATED_PICTURES[1] || CURATED_PICTURES[0];
-
-          const { data: game } = await supabaseServer
-            .from('games')
-            .select('*')
-            .eq('room_id', room.id)
-            .eq('status', 'IN_PROGRESS')
-            .order('created_at', { ascending: false })
-            .limit(1)
-            .maybeSingle();
-
-          await supabaseServer.from('stages').insert({
-            id: stageId,
-            game_id: game?.id || randomUUID(),
-            room_id: room.id,
-            stage_number: nextStageNumber,
-            picture_id: picture.id,
-            phase: 'SUBMITTING',
-            started_at: new Date().toISOString(),
-          });
-
-          await supabaseServer.from('rooms').update({
-            current_stage_number: nextStageNumber,
-            phase: 'SUBMITTING',
-            updated_at: new Date().toISOString(),
-          }).eq('id', room.id);
-
-          return {
-            phase: 'SUBMITTING' as GamePhase,
-            stage_number: nextStageNumber,
-            stage_id: stageId,
-          };
-        } else {
-          await supabaseServer.from('rooms').update({
-            phase: 'FINISHED',
-            updated_at: new Date().toISOString(),
-          }).eq('id', room.id);
-
-          await supabaseServer.from('games').update({
-            status: 'COMPLETED',
-            completed_at: new Date().toISOString(),
-          }).eq('room_id', room.id);
-
-          const { data: players } = await supabaseServer
-            .from('players')
-            .select('*')
-            .eq('room_id', room.id);
-
-          const leaderboard = computeLeaderboard(players || []);
-
-          return {
-            phase: 'FINISHED' as GamePhase,
-            final_leaderboard: leaderboard,
-          };
-        }
-      } catch (err: any) {
-        if (err?.status) throw err;
-        console.error('Supabase advanceStage error:', err?.message || err);
-      }
-    }
-
-    // In-memory fallback
     const room = memoryStore.rooms.get(code);
     if (!room) {
       throw { status: 404, message: 'Room not found' };
@@ -818,18 +608,29 @@ export class GameService {
       throw { status: 409, message: 'Room is not in RESULTS phase' };
     }
 
+    const players = memoryStore.players.get(code) || [];
+    const caller = players.find((p) => p.session_token === sessionToken);
+
+    if (!caller || !caller.is_host) {
+      throw { status: 403, message: 'Only the host can advance stages' };
+    }
+
     if (room.current_stage_number < TOTAL_STAGES) {
       const nextStageNumber = room.current_stage_number + 1;
       const stageId = randomUUID();
-      const picture = memoryStore.pictures[1] || memoryStore.pictures[0];
+
+      const activePlayers = players.filter((p) => p.is_connected);
+      const selectedPics = selectPicturesForStage(nextStageNumber, activePlayers.length);
+      const stageMatchups = generateStageMatchups(stageId, activePlayers, selectedPics);
 
       const stage2: Stage = {
         id: stageId,
         game_id: randomUUID(),
         room_id: room.id,
         stage_number: nextStageNumber,
-        picture_id: picture.id,
+        picture_id: selectedPics[0]?.id,
         phase: 'SUBMITTING',
+        current_matchup_index: 0,
         started_at: new Date().toISOString(),
         completed_at: null,
       };
@@ -838,10 +639,13 @@ export class GameService {
       stages.push(stage2);
       memoryStore.stages.set(code, stages);
 
+      memoryStore.matchups.set(stageId, stageMatchups);
       memoryStore.submissions.set(stageId, []);
       memoryStore.votes.set(stageId, []);
+      memoryStore.matchupScores.set(stageId, []);
 
       room.current_stage_number = nextStageNumber;
+      room.current_matchup_index = 0;
       room.phase = 'SUBMITTING';
       room.updated_at = new Date().toISOString();
 
@@ -849,16 +653,16 @@ export class GameService {
         phase: room.phase,
         stage_number: nextStageNumber,
         stage_id: stageId,
+        total_matchups: stageMatchups.length,
       };
     } else {
       room.phase = 'FINISHED';
       room.updated_at = new Date().toISOString();
 
-      const players = memoryStore.players.get(code) || [];
       const leaderboard = computeLeaderboard(players);
 
       return {
-        phase: 'FINISHED',
+        phase: 'FINISHED' as GamePhase,
         final_leaderboard: leaderboard,
       };
     }
@@ -869,51 +673,6 @@ export class GameService {
    */
   static async resetGame(roomCode: string, sessionToken: string) {
     const code = roomCode.toUpperCase();
-
-    if (isSupabaseConfigured()) {
-      try {
-        const { data: room } = await supabaseServer
-          .from('rooms')
-          .select('*')
-          .eq('room_code', code)
-          .maybeSingle();
-
-        if (!room) {
-          throw { status: 404, message: 'Room not found' };
-        }
-
-        const { data: players } = await supabaseServer
-          .from('players')
-          .select('*')
-          .eq('room_id', room.id);
-
-        const caller = (players || []).find((p) => p.session_token === sessionToken);
-        if (!caller || !caller.is_host) {
-          throw { status: 403, message: 'Only the host can reset the game' };
-        }
-
-        await supabaseServer
-          .from('players')
-          .update({ score: 0 })
-          .eq('room_id', room.id);
-
-        await supabaseServer.from('rooms').update({
-          phase: 'LOBBY',
-          current_stage_number: 1,
-          updated_at: new Date().toISOString(),
-        }).eq('id', room.id);
-
-        return {
-          phase: 'LOBBY' as GamePhase,
-          current_stage_number: 1,
-        };
-      } catch (err: any) {
-        if (err?.status) throw err;
-        console.error('Supabase resetGame error:', err?.message || err);
-      }
-    }
-
-    // In-memory fallback
     const room = memoryStore.rooms.get(code);
     if (!room) {
       throw { status: 404, message: 'Room not found' };
@@ -932,13 +691,18 @@ export class GameService {
 
     room.phase = 'LOBBY';
     room.current_stage_number = 1;
+    room.current_matchup_index = 0;
     room.updated_at = new Date().toISOString();
 
     memoryStore.stages.set(code, []);
+    memoryStore.matchups.clear();
+    memoryStore.submissions.clear();
+    memoryStore.votes.clear();
+    memoryStore.matchupScores.clear();
     memoryStore.stageScores.clear();
 
     return {
-      phase: 'LOBBY',
+      phase: 'LOBBY' as GamePhase,
       current_stage_number: 1,
     };
   }
@@ -948,53 +712,6 @@ export class GameService {
    */
   static async leaveRoom(roomCode: string, sessionToken: string) {
     const code = roomCode.toUpperCase();
-
-    if (isSupabaseConfigured()) {
-      try {
-        const { data: room } = await supabaseServer
-          .from('rooms')
-          .select('*')
-          .eq('room_code', code)
-          .maybeSingle();
-
-        if (!room) {
-          throw { status: 404, message: 'Room not found' };
-        }
-
-        const { data: players } = await supabaseServer
-          .from('players')
-          .select('*')
-          .eq('room_id', room.id)
-          .order('joined_at', { ascending: true });
-
-        const leavingPlayer = (players || []).find((p) => p.session_token === sessionToken);
-        if (!leavingPlayer) {
-          return { success: true };
-        }
-
-        await supabaseServer.from('players').delete().eq('id', leavingPlayer.id);
-
-        const remainingPlayers = (players || []).filter((p) => p.id !== leavingPlayer.id);
-        let newHostId = room.host_player_id;
-
-        if (leavingPlayer.is_host && remainingPlayers.length > 0) {
-          newHostId = remainingPlayers[0].id;
-          await supabaseServer.from('players').update({ is_host: true }).eq('id', newHostId);
-          await supabaseServer.from('rooms').update({ host_player_id: newHostId }).eq('id', room.id);
-        }
-
-        return {
-          success: true,
-          remaining_players: remainingPlayers.length,
-          new_host_id: newHostId,
-        };
-      } catch (err: any) {
-        if (err?.status) throw err;
-        console.error('Supabase leaveRoom error:', err?.message || err);
-      }
-    }
-
-    // In-memory fallback
     const room = memoryStore.rooms.get(code);
     if (!room) {
       throw { status: 404, message: 'Room not found' };
@@ -1027,137 +744,6 @@ export class GameService {
    */
   static async getRoomState(roomCode: string, sessionToken: string): Promise<RoomState> {
     const code = roomCode.toUpperCase();
-
-    if (isSupabaseConfigured()) {
-      try {
-        const { data: room } = await supabaseServer
-          .from('rooms')
-          .select('*')
-          .eq('room_code', code)
-          .maybeSingle();
-
-        if (!room) {
-          throw { status: 404, message: 'Room not found' };
-        }
-
-        const { data: players } = await supabaseServer
-          .from('players')
-          .select('*')
-          .eq('room_id', room.id)
-          .order('joined_at', { ascending: true });
-
-        const me = (players || []).find((p) => p.session_token === sessionToken);
-        if (!me) {
-          throw { status: 401, message: 'Invalid session token for this room' };
-        }
-
-        const { data: stages } = await supabaseServer
-          .from('stages')
-          .select('*')
-          .eq('room_id', room.id)
-          .eq('stage_number', room.current_stage_number)
-          .order('started_at', { ascending: false })
-          .limit(1);
-
-        const currentStage = stages && stages.length > 0 ? stages[0] : null;
-        const picture = currentStage
-          ? CURATED_PICTURES.find((p) => p.id === currentStage.picture_id) || CURATED_PICTURES[0]
-          : null;
-
-        const { data: submissions } = currentStage
-          ? await supabaseServer.from('submissions').select('*').eq('stage_id', currentStage.id)
-          : { data: [] };
-
-        const { data: votes } = currentStage
-          ? await supabaseServer.from('votes').select('*').eq('stage_id', currentStage.id)
-          : { data: [] };
-
-        const { data: dbStageScores } = currentStage
-          ? await supabaseServer.from('stage_scores').select('*').eq('stage_id', currentStage.id)
-          : { data: [] };
-
-        const hasSubmitted = currentStage
-          ? (submissions || []).some((s) => s.player_id === me.id)
-          : false;
-
-        const hasVoted = currentStage
-          ? (votes || []).some((v) => v.voter_player_id === me.id)
-          : false;
-
-        const votingOptions = currentStage
-          ? (submissions || [])
-              .filter((s) => s.player_id !== me.id)
-              .map((s) => ({ submission_id: s.id, title: s.title }))
-          : [];
-
-        let stageResults: StageResultItem[] = [];
-        if (dbStageScores && dbStageScores.length > 0) {
-          stageResults = dbStageScores.map((sc) => {
-            const sub = (submissions || []).find((s) => s.id === sc.submission_id);
-            const author = (players || []).find((p) => p.id === sc.player_id);
-            return {
-              submission_id: sc.submission_id,
-              title: sub?.title || 'Untitled',
-              author_nickname: author?.nickname || 'Unknown Player',
-              votes_received: sc.votes_received,
-              is_winner: sc.is_winner,
-              points_awarded: sc.points_awarded,
-            };
-          });
-          stageResults.sort((a, b) => b.votes_received - a.votes_received);
-        } else if (room.phase === 'RESULTS' && submissions && votes) {
-          const submissionsWithAuthors: SubmissionWithAuthor[] = submissions.map((s) => {
-            const author = (players || []).find((p) => p.id === s.player_id);
-            return { ...s, author_nickname: author ? author.nickname : 'Unknown Player' };
-          });
-          const computed = calculateStageResults(submissionsWithAuthors, votes);
-          stageResults = computed.results;
-        }
-
-        const finalLeaderboard = computeLeaderboard(players || []);
-
-        return {
-          room_id: room.id,
-          room_code: room.room_code,
-          phase: room.phase,
-          current_stage_number: room.current_stage_number,
-          host_player_id: room.host_player_id,
-          players: (players || []).map((p) => ({
-            id: p.id,
-            nickname: p.nickname,
-            is_host: p.is_host,
-            score: p.score,
-            is_connected: p.is_connected,
-          })),
-          me: {
-            id: me.id,
-            nickname: me.nickname,
-            is_host: me.is_host,
-            score: me.score,
-            has_submitted: hasSubmitted,
-            has_voted: hasVoted,
-          },
-          current_stage:
-            currentStage && picture
-              ? {
-                  stage_id: currentStage.id,
-                  stage_number: currentStage.stage_number,
-                  picture_url: picture.image_url,
-                  picture_description: picture.description,
-                  task_prompt: 'Give this tattoo your funniest title.',
-                }
-              : null,
-          voting_options: votingOptions,
-          stage_results: stageResults,
-          final_leaderboard: finalLeaderboard,
-        };
-      } catch (err: any) {
-        if (err?.status) throw err;
-        console.error('Supabase getRoomState error:', err?.message || err);
-      }
-    }
-
-    // In-memory fallback
     const room = memoryStore.rooms.get(code);
     if (!room) {
       throw { status: 404, message: 'Room not found' };
@@ -1172,22 +758,98 @@ export class GameService {
 
     const stages = memoryStore.stages.get(code) || [];
     const currentStage = stages.find((s) => s.stage_number === room.current_stage_number);
-    const picture = currentStage ? memoryStore.pictures.find((p) => p.id === currentStage.picture_id) || memoryStore.pictures[0] : null;
+    const stageId = currentStage?.id || '';
 
-    const submissions = currentStage ? memoryStore.submissions.get(currentStage.id) || [] : [];
-    const votes = currentStage ? memoryStore.votes.get(currentStage.id) || [] : [];
+    const stageMatchups = currentStage ? memoryStore.matchups.get(stageId) || [] : [];
+    const stageSubmissions = currentStage ? memoryStore.submissions.get(stageId) || [] : [];
+    const stageVotes = currentStage ? memoryStore.votes.get(stageId) || [] : [];
+    const stageMatchupScores = currentStage ? memoryStore.matchupScores.get(stageId) || [] : [];
 
-    const hasSubmitted = currentStage ? submissions.some((s) => s.player_id === me.id) : false;
-    const hasVoted = currentStage ? votes.some((v) => v.voter_player_id === me.id) : false;
+    // Assigned prompts for current player (Step 1 and Step 2)
+    const myAssignedMatchups = stageMatchups.filter(
+      (m) => m.player1_id === me.id || m.player2_id === me.id
+    );
 
-    // Strict self-omission from voting options (Principle VIII)
-    const votingOptions = currentStage
-      ? submissions
-          .filter((s) => s.player_id !== me.id)
-          .map((s) => ({ submission_id: s.id, title: s.title }))
-      : [];
+    const myPrompts: PlayerPromptInfo[] = myAssignedMatchups.map((m, index) => {
+      const sub = stageSubmissions.find((s) => s.matchup_id === m.id && s.player_id === me.id);
+      return {
+        matchup_id: m.id,
+        prompt_index: index + 1,
+        picture_id: m.picture.id,
+        picture_url: m.picture.image_url,
+        picture_description: m.picture.description,
+        task_prompt: 'Give this tattoo your funniest title.',
+        has_submitted: !!sub,
+        submitted_title: sub?.title,
+      };
+    });
 
-    const stageResults = currentStage ? (memoryStore.stageScores.get(currentStage.id) || []) : [];
+    const submittedCount = myPrompts.filter((p) => p.has_submitted).length;
+    const hasSubmittedAll = myPrompts.length > 0 && submittedCount >= myPrompts.length;
+
+    // Current active matchup for VOTING phase
+    let currentMatchupInfo: CurrentMatchupInfo | null = null;
+    let votingOptions: VotingOption[] = [];
+
+    if (currentStage && stageMatchups.length > 0) {
+      const activeMatchupIndex = Math.min(room.current_matchup_index, stageMatchups.length - 1);
+      const activeMatchup = stageMatchups[activeMatchupIndex];
+
+      if (activeMatchup) {
+        const isAuthor = activeMatchup.player1_id === me.id || activeMatchup.player2_id === me.id;
+        const matchupSubs = stageSubmissions.filter((s) => s.matchup_id === activeMatchup.id);
+        const matchupVotes = stageVotes.filter((v) => v.matchup_id === activeMatchup.id);
+        const myVote = matchupVotes.find((v) => v.voter_player_id === me.id);
+
+        const activePlayers = players.filter((p) => p.is_connected);
+        const eligibleVoters = activePlayers.filter(
+          (p) => p.id !== activeMatchup.player1_id && p.id !== activeMatchup.player2_id
+        );
+
+        if (!isAuthor) {
+          votingOptions = matchupSubs.map((s) => ({
+            submission_id: s.id,
+            title: s.title,
+          }));
+        }
+
+        const matchupResult = stageMatchupScores.find((r) => r.matchup_id === activeMatchup.id) || null;
+
+        currentMatchupInfo = {
+          matchup_id: activeMatchup.id,
+          order_index: activeMatchup.order_index,
+          total_matchups: stageMatchups.length,
+          picture_url: activeMatchup.picture.image_url,
+          picture_description: activeMatchup.picture.description,
+          task_prompt: 'Give this tattoo your funniest title.',
+          is_author: isAuthor,
+          is_revealed: activeMatchup.is_revealed,
+          voting_options: votingOptions,
+          has_voted: !!myVote,
+          my_vote_submission_id: myVote?.submission_id,
+          total_voted: matchupVotes.length,
+          total_eligible_voters: eligibleVoters.length,
+          result: matchupResult,
+        };
+      }
+    }
+
+    // Flattened stage results for summary
+    const stageResults: StageResultItem[] = [];
+    stageMatchupScores.forEach((mScore) => {
+      mScore.options.forEach((opt) => {
+        stageResults.push({
+          submission_id: opt.submission_id,
+          title: opt.title,
+          author_nickname: opt.author_nickname,
+          votes_received: opt.votes_received,
+          is_winner: opt.is_winner,
+          points_awarded: opt.points_awarded,
+        });
+      });
+    });
+    stageResults.sort((a, b) => b.votes_received - a.votes_received);
+
     const finalLeaderboard = computeLeaderboard(players);
 
     return {
@@ -1195,6 +857,8 @@ export class GameService {
       room_code: room.room_code,
       phase: room.phase,
       current_stage_number: room.current_stage_number,
+      current_matchup_index: room.current_matchup_index,
+      total_matchups: stageMatchups.length,
       host_player_id: room.host_player_id,
       players: players.map((p) => ({
         id: p.id,
@@ -1208,26 +872,32 @@ export class GameService {
         nickname: me.nickname,
         is_host: me.is_host,
         score: me.score,
-        has_submitted: hasSubmitted,
-        has_voted: hasVoted,
+        has_submitted_all: hasSubmittedAll,
+        submitted_count: submittedCount,
+        total_prompts_required: myPrompts.length || 2,
+        has_submitted: hasSubmittedAll,
+        has_voted: currentMatchupInfo ? currentMatchupInfo.has_voted : false,
       },
-      current_stage: currentStage && picture
+      my_prompts: myPrompts,
+      current_stage: currentStage
         ? {
             stage_id: currentStage.id,
             stage_number: currentStage.stage_number,
-            picture_url: picture.image_url,
-            picture_description: picture.description,
+            picture_url: currentMatchupInfo?.picture_url || myPrompts[0]?.picture_url || CURATED_PICTURES[0].image_url,
+            picture_description: currentMatchupInfo?.picture_description || myPrompts[0]?.picture_description || null,
             task_prompt: 'Give this tattoo your funniest title.',
           }
         : null,
+      current_matchup: currentMatchupInfo,
       voting_options: votingOptions,
+      stage_matchup_results: stageMatchupScores,
       stage_results: stageResults,
       final_leaderboard: finalLeaderboard,
     };
   }
 
   /**
-   * Admin: Force start the game under any conditions (with any number of players).
+   * Admin: Force start the game under any conditions.
    */
   static async forceStartGame(roomCode: string, password: string) {
     if (password !== 'Passw0rd_is_zer0') {
@@ -1235,112 +905,64 @@ export class GameService {
     }
 
     const code = roomCode.toUpperCase();
-
-    if (isSupabaseConfigured()) {
-      try {
-        const { data: room } = await supabaseServer
-          .from('rooms')
-          .select('*')
-          .eq('room_code', code)
-          .maybeSingle();
-
-        if (!room) {
-          throw { status: 404, message: 'Room not found' };
-        }
-
-        // Ensure pictures catalog is seeded
-        await supabaseServer.from('pictures').upsert(
-          CURATED_PICTURES.map((p) => ({
-            id: p.id,
-            image_url: p.image_url,
-            description: p.description,
-            is_active: p.is_active,
-          })),
-          { onConflict: 'id' }
-        );
-
-        const picture = CURATED_PICTURES[0];
-        const stageId = randomUUID();
-        const gameId = randomUUID();
-
-        await supabaseServer.from('games').insert({
-          id: gameId,
-          room_id: room.id,
-          total_stages: TOTAL_STAGES,
-          status: 'IN_PROGRESS',
-        });
-
-        await supabaseServer.from('stages').insert({
-          id: stageId,
-          game_id: gameId,
-          room_id: room.id,
-          stage_number: 1,
-          picture_id: picture.id,
-          phase: 'SUBMITTING',
-          started_at: new Date().toISOString(),
-        });
-
-        await supabaseServer
-          .from('rooms')
-          .update({
-            phase: 'SUBMITTING',
-            current_stage_number: 1,
-            updated_at: new Date().toISOString(),
-          })
-          .eq('id', room.id);
-
-        return {
-          phase: 'SUBMITTING' as GamePhase,
-          stage_number: 1,
-          stage_id: stageId,
-          picture_url: picture.image_url,
-          picture_description: picture.description,
-        };
-      } catch (err: any) {
-        if (err?.status) throw err;
-        console.error('Supabase forceStartGame error:', err?.message || err);
-      }
-    }
-
-    // In-memory fallback
     const room = memoryStore.rooms.get(code);
     if (!room) {
       throw { status: 404, message: 'Room not found' };
     }
 
+    const players = memoryStore.players.get(code) || [];
     const stageId = randomUUID();
-    const picture = memoryStore.pictures[0];
+    const activePlayers = players.length > 0 ? players : [
+      {
+        id: randomUUID(),
+        room_id: room.id,
+        nickname: 'AdminHost',
+        session_token: randomUUID(),
+        is_host: true,
+        score: 0,
+        is_connected: true,
+        joined_at: new Date().toISOString(),
+      },
+    ];
+
+    const selectedPics = selectPicturesForStage(1, Math.max(activePlayers.length, 2));
+    const stageMatchups = generateStageMatchups(stageId, activePlayers, selectedPics);
 
     const stage1: Stage = {
       id: stageId,
       game_id: randomUUID(),
       room_id: room.id,
       stage_number: 1,
-      picture_id: picture.id,
+      picture_id: selectedPics[0]?.id,
       phase: 'SUBMITTING',
+      current_matchup_index: 0,
       started_at: new Date().toISOString(),
       completed_at: null,
     };
 
     room.phase = 'SUBMITTING';
     room.current_stage_number = 1;
+    room.current_matchup_index = 0;
     room.updated_at = new Date().toISOString();
 
     memoryStore.stages.set(code, [stage1]);
+    memoryStore.matchups.set(stageId, stageMatchups);
     memoryStore.submissions.set(stageId, []);
     memoryStore.votes.set(stageId, []);
+    memoryStore.matchupScores.set(stageId, []);
 
     return {
       phase: room.phase,
       stage_number: 1,
       stage_id: stageId,
-      picture_url: picture.image_url,
-      picture_description: picture.description,
+      total_matchups: stageMatchups.length,
+      picture_url: selectedPics[0]?.image_url,
+      picture_description: selectedPics[0]?.description,
     };
   }
 
   /**
-   * Admin: Restart lobby to a clean slate (reset all scores, phases, and submissions).
+   * Admin: Restart lobby to a clean slate.
    */
   static async forceResetLobby(roomCode: string, password: string) {
     if (password !== 'Passw0rd_is_zer0') {
@@ -1348,62 +970,6 @@ export class GameService {
     }
 
     const code = roomCode.toUpperCase();
-
-    if (isSupabaseConfigured()) {
-      try {
-        const { data: room } = await supabaseServer
-          .from('rooms')
-          .select('*')
-          .eq('room_code', code)
-          .maybeSingle();
-
-        if (!room) {
-          throw { status: 404, message: 'Room not found' };
-        }
-
-        // Delete all stage data and scores for this room
-        const { data: roomStages } = await supabaseServer
-          .from('stages')
-          .select('id')
-          .eq('room_id', room.id);
-
-        if (roomStages && roomStages.length > 0) {
-          const stageIds = roomStages.map((s) => s.id);
-          await supabaseServer.from('stage_scores').delete().in('stage_id', stageIds);
-          await supabaseServer.from('votes').delete().in('stage_id', stageIds);
-          await supabaseServer.from('submissions').delete().in('stage_id', stageIds);
-          await supabaseServer.from('stages').delete().eq('room_id', room.id);
-        }
-
-        await supabaseServer.from('games').delete().eq('room_id', room.id);
-
-        // Reset player scores
-        await supabaseServer
-          .from('players')
-          .update({ score: 0 })
-          .eq('room_id', room.id);
-
-        // Reset room to LOBBY
-        await supabaseServer
-          .from('rooms')
-          .update({
-            phase: 'LOBBY',
-            current_stage_number: 1,
-            updated_at: new Date().toISOString(),
-          })
-          .eq('id', room.id);
-
-        return {
-          phase: 'LOBBY' as GamePhase,
-          current_stage_number: 1,
-        };
-      } catch (err: any) {
-        if (err?.status) throw err;
-        console.error('Supabase forceResetLobby error:', err?.message || err);
-      }
-    }
-
-    // In-memory fallback
     const room = memoryStore.rooms.get(code);
     if (!room) {
       throw { status: 404, message: 'Room not found' };
@@ -1416,9 +982,14 @@ export class GameService {
 
     room.phase = 'LOBBY';
     room.current_stage_number = 1;
+    room.current_matchup_index = 0;
     room.updated_at = new Date().toISOString();
 
     memoryStore.stages.set(code, []);
+    memoryStore.matchups.clear();
+    memoryStore.submissions.clear();
+    memoryStore.votes.clear();
+    memoryStore.matchupScores.clear();
     memoryStore.stageScores.clear();
 
     return {
@@ -1428,7 +999,7 @@ export class GameService {
   }
 
   /**
-   * Admin: Force advance stage or phase.
+   * Admin: Force advance room to the next state or phase.
    */
   static async forceAdvance(roomCode: string, password: string) {
     if (password !== 'Passw0rd_is_zer0') {
@@ -1436,113 +1007,80 @@ export class GameService {
     }
 
     const code = roomCode.toUpperCase();
-
-    if (isSupabaseConfigured()) {
-      try {
-        const { data: room } = await supabaseServer
-          .from('rooms')
-          .select('*')
-          .eq('room_code', code)
-          .maybeSingle();
-
-        if (!room) {
-          throw { status: 404, message: 'Room not found' };
-        }
-
-        if (room.phase === 'LOBBY') {
-          return this.forceStartGame(code, password);
-        } else if (room.phase === 'SUBMITTING') {
-          await supabaseServer
-            .from('rooms')
-            .update({ phase: 'VOTING', updated_at: new Date().toISOString() })
-            .eq('id', room.id);
-          return { phase: 'VOTING' as GamePhase, current_stage_number: room.current_stage_number };
-        } else if (room.phase === 'VOTING') {
-          await supabaseServer
-            .from('rooms')
-            .update({ phase: 'RESULTS', updated_at: new Date().toISOString() })
-            .eq('id', room.id);
-          return { phase: 'RESULTS' as GamePhase, current_stage_number: room.current_stage_number };
-        } else if (room.phase === 'RESULTS') {
-          if (room.current_stage_number < TOTAL_STAGES) {
-            const nextStage = room.current_stage_number + 1;
-            const stageId = randomUUID();
-            const picture = CURATED_PICTURES[1] || CURATED_PICTURES[0];
-
-            await supabaseServer.from('stages').insert({
-              id: stageId,
-              game_id: randomUUID(),
-              room_id: room.id,
-              stage_number: nextStage,
-              picture_id: picture.id,
-              phase: 'SUBMITTING',
-              started_at: new Date().toISOString(),
-            });
-
-            await supabaseServer
-              .from('rooms')
-              .update({
-                phase: 'SUBMITTING',
-                current_stage_number: nextStage,
-                updated_at: new Date().toISOString(),
-              })
-              .eq('id', room.id);
-
-            return { phase: 'SUBMITTING' as GamePhase, current_stage_number: nextStage };
-          } else {
-            await supabaseServer
-              .from('rooms')
-              .update({ phase: 'FINISHED', updated_at: new Date().toISOString() })
-              .eq('id', room.id);
-            return { phase: 'FINISHED' as GamePhase, current_stage_number: 2 };
-          }
-        } else {
-          return this.forceResetLobby(code, password);
-        }
-      } catch (err: any) {
-        if (err?.status) throw err;
-        console.error('Supabase forceAdvance error:', err?.message || err);
-      }
-    }
-
-    // In-memory fallback
     const room = memoryStore.rooms.get(code);
     if (!room) {
       throw { status: 404, message: 'Room not found' };
     }
 
+    const stages = memoryStore.stages.get(code) || [];
+    const currentStage = stages.find((s) => s.stage_number === room.current_stage_number);
+    const stageMatchups = currentStage ? memoryStore.matchups.get(currentStage.id) || [] : [];
+
     if (room.phase === 'LOBBY') {
-      return this.forceStartGame(code, password);
+      return await this.forceStartGame(code, password);
     } else if (room.phase === 'SUBMITTING') {
       room.phase = 'VOTING';
+      room.current_matchup_index = 0;
+      if (currentStage) {
+        currentStage.phase = 'VOTING';
+        currentStage.current_matchup_index = 0;
+      }
       room.updated_at = new Date().toISOString();
       return { phase: 'VOTING' as GamePhase, current_stage_number: room.current_stage_number };
     } else if (room.phase === 'VOTING') {
-      room.phase = 'RESULTS';
-      room.updated_at = new Date().toISOString();
-      return { phase: 'RESULTS' as GamePhase, current_stage_number: room.current_stage_number };
-    } else if (room.phase === 'RESULTS') {
-      if (room.current_stage_number < TOTAL_STAGES) {
-        room.current_stage_number += 1;
-        room.phase = 'SUBMITTING';
+      const activeMatchupIndex = room.current_matchup_index;
+      const activeMatchup = stageMatchups[activeMatchupIndex];
+      if (activeMatchup && !activeMatchup.is_revealed) {
+        activeMatchup.is_revealed = true;
+        return { phase: 'VOTING' as GamePhase, current_stage_number: room.current_stage_number, is_revealed: true };
+      } else if (activeMatchupIndex + 1 < stageMatchups.length) {
+        room.current_matchup_index = activeMatchupIndex + 1;
         room.updated_at = new Date().toISOString();
-        return { phase: 'SUBMITTING' as GamePhase, current_stage_number: room.current_stage_number };
+        return { phase: 'VOTING' as GamePhase, current_matchup_index: room.current_matchup_index };
       } else {
-        room.phase = 'FINISHED';
+        room.phase = 'RESULTS';
         room.updated_at = new Date().toISOString();
-        return { phase: 'FINISHED' as GamePhase, current_stage_number: 2 };
+        if (currentStage) {
+          currentStage.phase = 'RESULTS';
+          currentStage.completed_at = new Date().toISOString();
+        }
+        return { phase: 'RESULTS' as GamePhase, current_stage_number: room.current_stage_number };
       }
+    } else if (room.phase === 'RESULTS') {
+      const players = memoryStore.players.get(code) || [];
+      const host = players.find((p) => p.is_host) || players[0];
+      if (host) {
+        return await this.advanceStage(code, host.session_token);
+      }
+      room.phase = 'FINISHED';
+      room.updated_at = new Date().toISOString();
+      return { phase: 'FINISHED' as GamePhase };
     } else {
-      return this.forceResetLobby(code, password);
+      return await this.forceResetLobby(code, password);
     }
   }
 
-  static _resetMemoryStore() {
-    memoryStore.rooms.clear();
-    memoryStore.players.clear();
-    memoryStore.stages.clear();
-    memoryStore.submissions.clear();
-    memoryStore.votes.clear();
-    memoryStore.stageScores.clear();
+  /**
+   * Admin: Force advance room to a specific phase.
+   */
+  static async forceAdvancePhase(roomCode: string, targetPhase: GamePhase, password: string) {
+    if (password !== 'Passw0rd_is_zer0') {
+      throw { status: 401, message: 'Invalid admin password' };
+    }
+
+    const code = roomCode.toUpperCase();
+    const room = memoryStore.rooms.get(code);
+    if (!room) {
+      throw { status: 404, message: 'Room not found' };
+    }
+
+    room.phase = targetPhase;
+    room.updated_at = new Date().toISOString();
+
+    return {
+      phase: room.phase,
+      current_stage_number: room.current_stage_number,
+    };
   }
 }
+

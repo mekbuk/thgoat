@@ -13,18 +13,21 @@ describe('Reconnection & Lifecycle Integration', () => {
 
     const started = await GameService.startGame(host.room_code, host.session_token);
 
-    // Player 2 submits title
+    // Player 2 submits title for first assigned prompt
+    const p2StateBefore = await GameService.getRoomState(host.room_code, p2.session_token);
     await GameService.submitTitle(
       host.room_code,
       p2.session_token,
       started.stage_id,
-      'My Cool Title'
+      'My Cool Title',
+      p2StateBefore.my_prompts[0].matchup_id
     );
 
     // Simulate browser refresh for Player 2: fetch room state using session token
     const rehydrated = await GameService.getRoomState(host.room_code, p2.session_token);
     expect(rehydrated.phase).toBe('SUBMITTING');
-    expect(rehydrated.me?.has_submitted).toBe(true);
+    expect(rehydrated.me?.submitted_count).toBe(1);
+    expect(rehydrated.my_prompts[0].has_submitted).toBe(true);
     expect(rehydrated.me?.nickname).toBe('PlayerTwo');
     expect(rehydrated.current_stage?.stage_id).toBe(started.stage_id);
   });

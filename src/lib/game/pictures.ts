@@ -29,16 +29,112 @@ export const CURATED_PICTURES: Picture[] = [
     is_active: true,
     created_at: new Date().toISOString(),
   },
+  {
+    id: '55555555-5555-5555-5555-555555555555',
+    image_url: 'https://images.unsplash.com/photo-1560707303-4e980ce876ad?auto=format&fit=crop&w=800&q=80',
+    description: 'A cat with six arms holding cups of coffee and crying',
+    is_active: true,
+    created_at: new Date().toISOString(),
+  },
+  {
+    id: '66666666-6666-6666-6666-666666666666',
+    image_url: 'https://images.unsplash.com/photo-1578301978693-85fa9c0320b9?auto=format&fit=crop&w=800&q=80',
+    description: 'A majestic lion tattoo that looks surprisingly like Nicholas Cage',
+    is_active: true,
+    created_at: new Date().toISOString(),
+  },
+  {
+    id: '77777777-7777-7777-7777-777777777777',
+    image_url: 'https://images.unsplash.com/photo-1542385151-efd9000785a0?auto=format&fit=crop&w=800&q=80',
+    description: 'An anatomically questionable skull wearing propeller beanie',
+    is_active: true,
+    created_at: new Date().toISOString(),
+  },
+  {
+    id: '88888888-8888-8888-8888-888888888888',
+    image_url: 'https://images.unsplash.com/photo-1568515045052-f9a854d70bfd?auto=format&fit=crop&w=800&q=80',
+    description: 'A butterfly tattoo that accidentally looks like a juicy steak',
+    is_active: true,
+    created_at: new Date().toISOString(),
+  },
+  {
+    id: '99999999-9999-9999-9999-999999999999',
+    image_url: 'https://images.unsplash.com/photo-1562962230-16e4623d36e6?auto=format&fit=crop&w=800&q=80',
+    description: 'A barcode on a neck that actually scans as a pack of celery',
+    is_active: true,
+    created_at: new Date().toISOString(),
+  },
+  {
+    id: 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa',
+    image_url: 'https://images.unsplash.com/photo-1590246814883-5783515fb27c?auto=format&fit=crop&w=800&q=80',
+    description: 'A dolphin jumping through a fiery ring of flaming donuts',
+    is_active: true,
+    created_at: new Date().toISOString(),
+  },
+  {
+    id: 'bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb',
+    image_url: 'https://images.unsplash.com/photo-1598371839696-5c5bb00bdc28?auto=format&fit=crop&w=800&q=80',
+    description: 'A portrait of an ex-partner covered up with a crude giant raven',
+    is_active: true,
+    created_at: new Date().toISOString(),
+  },
+  {
+    id: 'cccccccc-cccc-cccc-cccc-cccccccccccc',
+    image_url: 'https://images.unsplash.com/photo-1611501275019-9b5cda994e8d?auto=format&fit=crop&w=800&q=80',
+    description: 'A flaming eight-ball that looks suspiciously like a bowling ball on fire',
+    is_active: true,
+    created_at: new Date().toISOString(),
+  },
+  {
+    id: 'dddddddd-dddd-dddd-dddd-dddddddddddd',
+    image_url: 'https://images.unsplash.com/photo-1560707303-4e980ce876ad?auto=format&fit=crop&w=800&q=80',
+    description: 'A screaming pigeon with biceps flexing in a tank top',
+    is_active: true,
+    created_at: new Date().toISOString(),
+  },
+  {
+    id: 'eeeeeeee-eeee-eeee-eeee-eeeeeeeeeeee',
+    image_url: 'https://images.unsplash.com/photo-1578301978693-85fa9c0320b9?auto=format&fit=crop&w=800&q=80',
+    description: 'A rose tattoo where the stem spells out "Only God Can Fudge Me"',
+    is_active: true,
+    created_at: new Date().toISOString(),
+  },
+  {
+    id: 'ffffffff-ffff-ffff-ffff-ffffffffffff',
+    image_url: 'https://images.unsplash.com/photo-1542385151-efd9000785a0?auto=format&fit=crop&w=800&q=80',
+    description: 'A giant grim reaper riding a tandem bicycle with a rubber duck',
+    is_active: true,
+    created_at: new Date().toISOString(),
+  },
+  {
+    id: '00000000-aaaa-bbbb-cccc-000000000001',
+    image_url: 'https://images.unsplash.com/photo-1568515045052-f9a854d70bfd?auto=format&fit=crop&w=800&q=80',
+    description: 'A tiny smiley face tattooed on an elbow that looks very confused',
+    is_active: true,
+    created_at: new Date().toISOString(),
+  },
 ];
 
 /**
- * Selects pictures for Stage 1 and Stage 2 from the curated catalog.
+ * Selects distinct pictures for a stage from the curated catalog.
+ * Stage 1 takes the first slice, Stage 2 takes the subsequent slice.
  */
+export function selectPicturesForStage(stageNumber: number, count: number): Picture[] {
+  const active = CURATED_PICTURES.filter((p) => p.is_active);
+  if (count <= 0) return [];
+
+  const startIndex = ((stageNumber - 1) * count) % active.length;
+  const selected: Picture[] = [];
+
+  for (let i = 0; i < count; i++) {
+    const idx = (startIndex + i) % active.length;
+    selected.push(active[idx]);
+  }
+
+  return selected;
+}
+
 export function selectGamePictures(totalStages: number = 2): Picture[] {
   const active = CURATED_PICTURES.filter((p) => p.is_active);
-  if (active.length < totalStages) {
-    return active;
-  }
-  // Return distinct pictures for each stage
-  return [active[0], active[1]];
+  return active.slice(0, totalStages);
 }

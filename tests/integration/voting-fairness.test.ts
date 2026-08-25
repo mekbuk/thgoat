@@ -13,42 +13,54 @@ describe('Voting Fairness & Self-Vote Prevention Integration', () => {
 
     const started = await GameService.startGame(host.room_code, host.session_token);
 
-    await GameService.submitTitle(host.room_code, host.session_token, started.stage_id, 'Title A by Host');
-    await GameService.submitTitle(host.room_code, p2.session_token, started.stage_id, 'Title B by P2');
-    await GameService.submitTitle(host.room_code, p3.session_token, started.stage_id, 'Title C by P3');
+    const hostState = await GameService.getRoomState(host.room_code, host.session_token);
+    const p2State = await GameService.getRoomState(host.room_code, p2.session_token);
+    const p3State = await GameService.getRoomState(host.room_code, p3.session_token);
+
+    // Host submits both titles
+    await GameService.submitTitle(host.room_code, host.session_token, started.stage_id, 'Host Title 1', hostState.my_prompts[0].matchup_id);
+    await GameService.submitTitle(host.room_code, host.session_token, started.stage_id, 'Host Title 2', hostState.my_prompts[1].matchup_id);
+
+    // P2 submits both titles
+    await GameService.submitTitle(host.room_code, p2.session_token, started.stage_id, 'P2 Title 1', p2State.my_prompts[0].matchup_id);
+    await GameService.submitTitle(host.room_code, p2.session_token, started.stage_id, 'P2 Title 2', p2State.my_prompts[1].matchup_id);
+
+    // P3 submits both titles
+    await GameService.submitTitle(host.room_code, p3.session_token, started.stage_id, 'P3 Title 1', p3State.my_prompts[0].matchup_id);
+    await GameService.submitTitle(host.room_code, p3.session_token, started.stage_id, 'P3 Title 2', p3State.my_prompts[1].matchup_id);
 
     return { host, p2, p3, stage_id: started.stage_id, room_code: host.room_code };
   }
 
-  it('omits player own submission from their voting options', async () => {
-    const { host, p2, room_code } = await setupVotingStage();
+  it('correctly sets is_author and provides voting options only to non-authors', async () => {
+    const { host, p2, p3, room_code } = await setupVotingStage();
 
+    // Matchup 0 is between Host and P2
     const hostState = await GameService.getRoomState(room_code, host.session_token);
-    expect(hostState.voting_options).toHaveLength(2);
-    expect(hostState.voting_options.map((o) => o.title)).not.toContain('Title A by Host');
-    expect(hostState.voting_options.map((o) => o.title)).toContain('Title B by P2');
-    expect(hostState.voting_options.map((o) => o.title)).toContain('Title C by P3');
+    expect(hostState.current_matchup?.is_author).toBe(true);
+    expect(hostState.current_matchup?.voting_options).toHaveLength(0);
 
     const p2State = await GameService.getRoomState(room_code, p2.session_token);
-    expect(p2State.voting_options.map((o) => o.title)).not.toContain('Title B by P2');
+    expect(p2State.current_matchup?.is_author).toBe(true);
+
+    const p3State = await GameService.getRoomState(room_code, p3.session_token);
+    expect(p3State.current_matchup?.is_author).toBe(false);
+    expect(p3State.current_matchup?.voting_options).toHaveLength(2);
   });
 
-  it('server strictly rejects malicious self-vote attempt', async () => {
-    const { host, p2, room_code, stage_id } = await setupVotingStage();
+  it('server strictly rejects malicious self-vote attempt from authors', async () => {
+    const { host, p3, room_code, stage_id } = await setupVotingStage();
 
-    // From P2's perspective, find the submission authored by Host
-    const p2State = await GameService.getRoomState(room_code, p2.session_token);
-    const hostSubmission = p2State.voting_options.find((o) => o.title === 'Title A by Host');
+    const p3State = await GameService.getRoomState(room_code, p3.session_token);
+    const targetSubmissionId = p3State.current_matchup!.voting_options[0].submission_id;
 
-    expect(hostSubmission).toBeDefined();
-
-    // Host attempts to vote for their own submission ID
+    // Host (who is an author of Matchup 0) attempts to vote
     await expect(
       GameService.submitVote(
         room_code,
         host.session_token,
         stage_id,
-        hostSubmission!.submission_id
+        targetSubmissionId
       )
     ).rejects.toMatchObject({
       status: 400,
@@ -56,38 +68,78 @@ describe('Voting Fairness & Self-Vote Prevention Integration', () => {
     });
   });
 
-  it('allows valid peer votes and transitions to RESULTS when all vote', async () => {
-    const { host, p2, p3, room_code, stage_id } = await setupVotingStage();
+  it('allows valid peer votes and reveals matchup upon receiving all votes', async () => {
+    const { host, p3, room_code, stage_id } = await setupVotingStage();
 
-    const hostOptions = (await GameService.getRoomState(room_code, host.session_token)).voting_options;
-    const p2Options = (await GameService.getRoomState(room_code, p2.session_token)).voting_options;
-    const p3Options = (await GameService.getRoomState(room_code, p3.session_token)).voting_options;
+    const p3State = await GameService.getRoomState(room_code, p3.session_token);
+    const matchupId = p3State.current_matchup!.matchup_id;
+    const chosenSubmissionId = p3State.current_matchup!.voting_options[0].submission_id;
 
-    // Host votes for Title B
-    await GameService.submitVote(room_code, host.session_token, stage_id, hostOptions[0].submission_id);
+    // P3 casts vote
+    const voteRes = await GameService.submitVote(
+      room_code,
+      p3.session_token,
+      stage_id,
+      chosenSubmissionId,
+      matchupId
+    );
 
-    // P2 votes for Title C
-    await GameService.submitVote(room_code, p2.session_token, stage_id, p2Options[0].submission_id);
+    expect(voteRes.success).toBe(true);
+    expect(voteRes.is_revealed).toBe(true);
+    expect(voteRes.result).toBeDefined();
 
-    // P3 votes for Title B (Final vote) -> should transition to RESULTS
-    const v3 = await GameService.submitVote(room_code, p3.session_token, stage_id, p3Options[0].submission_id);
-    expect(v3.phase).toBe('RESULTS');
-
-    const state = await GameService.getRoomState(room_code, host.session_token);
-    expect(state.phase).toBe('RESULTS');
-    expect(state.stage_results.length).toBeGreaterThan(0);
+    const hostState = await GameService.getRoomState(room_code, host.session_token);
+    expect(hostState.current_matchup?.is_revealed).toBe(true);
+    expect(hostState.current_matchup?.result?.options).toHaveLength(2);
   });
 
-  it('rejects duplicate voting by same player in same stage', async () => {
-    const { host, room_code, stage_id } = await setupVotingStage();
-    const hostOptions = (await GameService.getRoomState(room_code, host.session_token)).voting_options;
+  it('allows host to advance through all matchups to RESULTS', async () => {
+    const { host, p2, p3, room_code, stage_id } = await setupVotingStage();
 
-    await GameService.submitVote(room_code, host.session_token, stage_id, hostOptions[0].submission_id);
+    // Matchup 0: P3 votes
+    const p3State0 = await GameService.getRoomState(room_code, p3.session_token);
+    await GameService.submitVote(
+      room_code,
+      p3.session_token,
+      stage_id,
+      p3State0.current_matchup!.voting_options[0].submission_id
+    );
 
-    await expect(
-      GameService.submitVote(room_code, host.session_token, stage_id, hostOptions[1].submission_id)
-    ).rejects.toMatchObject({
-      status: 400,
-    });
+    // Host advances to Matchup 1
+    const adv1 = await GameService.advanceMatchup(room_code, host.session_token);
+    expect(adv1.phase).toBe('VOTING');
+    expect(adv1.current_matchup_index).toBe(1);
+
+    // Matchup 1: Host votes (since Matchup 1 is P2 vs P3)
+    const hostState1 = await GameService.getRoomState(room_code, host.session_token);
+    expect(hostState1.current_matchup?.is_author).toBe(false);
+    await GameService.submitVote(
+      room_code,
+      host.session_token,
+      stage_id,
+      hostState1.current_matchup!.voting_options[0].submission_id
+    );
+
+    // Host advances to Matchup 2
+    const adv2 = await GameService.advanceMatchup(room_code, host.session_token);
+    expect(adv2.current_matchup_index).toBe(2);
+
+    // Matchup 2: P2 votes (since Matchup 2 is P3 vs Host)
+    const p2State2 = await GameService.getRoomState(room_code, p2.session_token);
+    expect(p2State2.current_matchup?.is_author).toBe(false);
+    await GameService.submitVote(
+      room_code,
+      p2.session_token,
+      stage_id,
+      p2State2.current_matchup!.voting_options[0].submission_id
+    );
+
+    // Host advances final matchup -> should transition to RESULTS
+    const adv3 = await GameService.advanceMatchup(room_code, host.session_token);
+    expect(adv3.phase).toBe('RESULTS');
+
+    const finalState = await GameService.getRoomState(room_code, host.session_token);
+    expect(finalState.phase).toBe('RESULTS');
+    expect(finalState.stage_matchup_results).toHaveLength(3);
   });
 });
