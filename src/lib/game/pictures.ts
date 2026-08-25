@@ -1,3 +1,5 @@
+import fs from 'fs';
+import path from 'path';
 import { Picture } from '@/types/game';
 
 export const CURATED_PICTURES: Picture[] = [
@@ -115,26 +117,97 @@ export const CURATED_PICTURES: Picture[] = [
   },
 ];
 
+const ALLOWED_IMAGE_EXTS = new Set(['.jpg', '.jpeg', '.png', '.webp', '.gif', '.svg', '.avif', '.bmp']);
+
+function cleanDescriptionFromFilename(filename: string): string {
+  const nameWithoutExt = path.basename(filename, path.extname(filename));
+  const cleaned = nameWithoutExt.replace(/[-_]+/g, ' ').trim();
+  return cleaned
+    .split(' ')
+    .map((w) => (w.length > 0 ? w[0].toUpperCase() + w.slice(1).toLowerCase() : ''))
+    .join(' ');
+}
+
 /**
- * Selects distinct pictures for a stage from the curated catalog.
- * Stage 1 takes the first slice, Stage 2 takes the subsequent slice.
+ * Scans the local `photos/` folder and returns Picture models for all found image files.
+ */
+export function getLocalPictures(): Picture[] {
+  try {
+    const photosDir = path.join(process.cwd(), 'photos');
+    if (!fs.existsSync(photosDir)) {
+      return [];
+    }
+
+    const files = fs.readdirSync(photosDir);
+    const imageFiles = files.filter((f) => {
+      const ext = path.extname(f).toLowerCase();
+      return ALLOWED_IMAGE_EXTS.has(ext);
+    });
+
+    return imageFiles.map((file, idx) => ({
+      id: `photo-${encodeURIComponent(file)}`,
+      image_url: `/api/photos/${encodeURIComponent(file)}`,
+      description: cleanDescriptionFromFilename(file) || `Wild Tattoo #${idx + 1}`,
+      is_active: true,
+      created_at: new Date().toISOString(),
+    }));
+  } catch (err) {
+    console.error('Error reading photos folder:', err);
+    return [];
+  }
+}
+
+/**
+ * Returns available pictures, prioritizing the user's `photos/` folder.
+ */
+export function getAllAvailablePictures(): Picture[] {
+  const localPics = getLocalPictures();
+  if (localPics.length > 0) {
+    return localPics;
+  }
+  return CURATED_PICTURES.filter((p) => p.is_active);
+}
+
+/**
+ * Shuffles an array randomly using the Fisher-Yates algorithm.
+ */
+export function shuffleArray<T>(array: T[]): T[] {
+  const arr = [...array];
+  for (let i = arr.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [arr[i], arr[j]] = [arr[j], arr[i]];
+  }
+  return arr;
+}
+
+/**
+ * Selects randomly chosen pictures for a game stage from the available photo catalog.
+ * Shuffles pictures randomly so each game round gets a fresh surprise.
  */
 export function selectPicturesForStage(stageNumber: number, count: number): Picture[] {
-  const active = CURATED_PICTURES.filter((p) => p.is_active);
-  if (count <= 0) return [];
+  const pool = getAllAvailablePictures();
+  if (count <= 0 || pool.length === 0) return [];
 
-  const startIndex = ((stageNumber - 1) * count) % active.length;
+  const shuffled = shuffleArray(pool);
   const selected: Picture[] = [];
 
   for (let i = 0; i < count; i++) {
-    const idx = (startIndex + i) % active.length;
-    selected.push(active[idx]);
+    selected.push(shuffled[i % shuffled.length]);
   }
 
   return selected;
 }
 
+/**
+ * Selects random game pictures across stages.
+ */
 export function selectGamePictures(totalStages: number = 2): Picture[] {
-  const active = CURATED_PICTURES.filter((p) => p.is_active);
-  return active.slice(0, totalStages);
+  const pool = getAllAvailablePictures();
+  if (pool.length === 0) return [];
+  const shuffled = shuffleArray(pool);
+  const selected: Picture[] = [];
+  for (let i = 0; i < totalStages; i++) {
+    selected.push(shuffled[i % shuffled.length]);
+  }
+  return selected;
 }

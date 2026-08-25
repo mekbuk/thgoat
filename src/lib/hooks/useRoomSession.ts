@@ -11,9 +11,10 @@ export function useRoomSession(roomCode: string) {
   const [error, setError] = useState<string | null>(null);
 
   const sessionTokenRef = useRef<string | null>(null);
+  const isFetchingRef = useRef(false);
 
   // Fetch complete authoritative room state from server
-  const fetchRoomState = useCallback(async () => {
+  const fetchRoomState = useCallback(async (showLoading = false) => {
     const token =
       sessionTokenRef.current ||
       sessionStorage.getItem(`tg_session_${code}`);
@@ -26,9 +27,17 @@ export function useRoomSession(roomCode: string) {
 
     sessionTokenRef.current = token;
 
+    if (isFetchingRef.current) return;
+    isFetchingRef.current = true;
+
+    if (showLoading && !state) {
+      setLoading(true);
+    }
+
     try {
       const res = await fetch(`/api/rooms/${code}/state`, {
         headers: { 'x-session-token': token },
+        cache: 'no-store',
       });
 
       const data = await res.json();
@@ -39,25 +48,83 @@ export function useRoomSession(roomCode: string) {
       setState(data);
       setError(null);
     } catch (err: any) {
-      setError(err.message);
+      // If we already have state, avoid flashing error banner on brief network blips
+      if (!state) {
+        setError(err?.message || 'Failed to sync room state');
+      }
     } finally {
+      isFetchingRef.current = false;
       setLoading(false);
     }
-  }, [code]);
+  }, [code, state]);
 
   useEffect(() => {
-    fetchRoomState();
+    // Initial fetch
+    fetchRoomState(true);
 
-    // Subscribe to Realtime room events
-    const channel = createRoomChannel(code, (event: RealtimeEventPayload) => {
-      console.log('⚡ Realtime event received:', event);
+    // 1. Server-Sent Events (SSE) stream for instant real-time sync
+    let eventSource: EventSource | null = null;
+    let sseRetryTimeout: NodeJS.Timeout | null = null;
 
-      // Re-fetch authoritative state upon phase/state-changing events
-      fetchRoomState();
-    });
+    const connectSSE = () => {
+      try {
+        eventSource = new EventSource(`/api/rooms/${code}/events`);
+
+        eventSource.onmessage = (_e) => {
+          fetchRoomState();
+        };
+
+        eventSource.onerror = () => {
+          if (eventSource) {
+            eventSource.close();
+            eventSource = null;
+          }
+          // Reconnect with 3s backoff
+          sseRetryTimeout = setTimeout(connectSSE, 3000);
+        };
+      } catch (err) {
+        console.error('SSE connection failed, relying on adaptive polling:', err);
+      }
+    };
+
+    connectSSE();
+
+    // 2. Adaptive high-frequency polling fallback (1.5s interval)
+    // Ensures sync across all networks/devices without requiring page reloads
+    const pollInterval = setInterval(() => {
+      if (document.visibilityState === 'visible') {
+        fetchRoomState();
+      }
+    }, 1500);
+
+    // 3. Instant sync on tab visibility/focus
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === 'visible') {
+        fetchRoomState();
+      }
+    };
+    window.addEventListener('visibilitychange', handleVisibilityChange);
+    window.addEventListener('focus', handleVisibilityChange);
+
+    // 4. Supabase Realtime channel subscription (parallel broadcast layer)
+    let channel: any = null;
+    try {
+      channel = createRoomChannel(code, (event: RealtimeEventPayload) => {
+        fetchRoomState();
+      });
+    } catch (err) {
+      console.warn('Supabase realtime subscription skipped:', err);
+    }
 
     return () => {
-      channel.unsubscribe();
+      if (eventSource) eventSource.close();
+      if (sseRetryTimeout) clearTimeout(sseRetryTimeout);
+      clearInterval(pollInterval);
+      window.removeEventListener('visibilitychange', handleVisibilityChange);
+      window.removeEventListener('focus', handleVisibilityChange);
+      if (channel?.unsubscribe) {
+        channel.unsubscribe();
+      }
     };
   }, [code, fetchRoomState]);
 
@@ -65,7 +132,7 @@ export function useRoomSession(roomCode: string) {
     try {
       await broadcastRoomEvent(code, event);
     } catch (err) {
-      console.error('Failed to broadcast room event:', err);
+      console.warn('Failed to broadcast room event:', err);
     }
   };
 

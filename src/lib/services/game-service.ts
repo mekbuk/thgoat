@@ -5,6 +5,7 @@ import { MIN_PLAYERS, MAX_PLAYERS, validatePhaseTransition, TOTAL_STAGES } from 
 import { calculateMatchupResult, calculateStageResults, computeLeaderboard, SubmissionWithAuthor } from '@/lib/game/scoring';
 import { CURATED_PICTURES, selectPicturesForStage } from '@/lib/game/pictures';
 import { generateStageMatchups } from '@/lib/game/pairing';
+import { emitRoomEvent } from '@/lib/game/events';
 import {
   GamePhase,
   RoomState,
@@ -229,6 +230,17 @@ export class GameService {
     currentPlayers.push(newPlayer);
     memoryStore.players.set(code, currentPlayers);
 
+    emitRoomEvent(code, {
+      type: 'player_joined',
+      payload: {
+        id: playerId,
+        nickname,
+        is_host: false,
+        score: 0,
+        is_connected: true,
+      },
+    });
+
     return {
       room_id: room.id,
       room_code: room.room_code,
@@ -293,6 +305,11 @@ export class GameService {
     memoryStore.submissions.set(stageId, []);
     memoryStore.votes.set(stageId, []);
     memoryStore.matchupScores.set(stageId, []);
+
+    emitRoomEvent(code, {
+      type: 'room_phase_changed',
+      payload: { phase: room.phase, current_stage_number: 1 },
+    });
 
     return {
       phase: room.phase,
@@ -403,6 +420,20 @@ export class GameService {
         currentStage.phase = 'VOTING';
         currentStage.current_matchup_index = 0;
       }
+
+      emitRoomEvent(code, {
+        type: 'room_phase_changed',
+        payload: { phase: 'VOTING', current_stage_number: room.current_stage_number },
+      });
+    } else {
+      emitRoomEvent(code, {
+        type: 'submission_received',
+        payload: {
+          player_id: caller.id,
+          total_submitted: stageSubmissions.length,
+          total_required: totalExpectedSubmissions,
+        },
+      });
     }
 
     return {
@@ -527,6 +558,20 @@ export class GameService {
       const updatedScores = existingScores.filter((r) => r.matchup_id !== targetMatchup!.id);
       updatedScores.push(result);
       memoryStore.matchupScores.set(stageId, updatedScores);
+
+      emitRoomEvent(code, {
+        type: 'matchup_revealed',
+        payload: { matchup_id: targetMatchup.id, result },
+      });
+    } else {
+      emitRoomEvent(code, {
+        type: 'vote_received',
+        payload: {
+          matchup_id: targetMatchup.id,
+          total_voted: matchupVotes.length,
+          total_required: eligibleVoters.length,
+        },
+      });
     }
 
     return {
@@ -575,6 +620,14 @@ export class GameService {
       currentStage.current_matchup_index = nextMatchupIndex;
       room.updated_at = new Date().toISOString();
 
+      emitRoomEvent(code, {
+        type: 'matchup_advanced',
+        payload: {
+          current_matchup_index: nextMatchupIndex,
+          total_matchups: stageMatchups.length,
+        },
+      });
+
       return {
         phase: 'VOTING' as GamePhase,
         current_matchup_index: nextMatchupIndex,
@@ -586,6 +639,11 @@ export class GameService {
       room.updated_at = new Date().toISOString();
       currentStage.phase = 'RESULTS';
       currentStage.completed_at = new Date().toISOString();
+
+      emitRoomEvent(code, {
+        type: 'room_phase_changed',
+        payload: { phase: 'RESULTS', current_stage_number: room.current_stage_number },
+      });
 
       return {
         phase: 'RESULTS' as GamePhase,
@@ -649,6 +707,11 @@ export class GameService {
       room.phase = 'SUBMITTING';
       room.updated_at = new Date().toISOString();
 
+      emitRoomEvent(code, {
+        type: 'room_phase_changed',
+        payload: { phase: room.phase, current_stage_number: nextStageNumber },
+      });
+
       return {
         phase: room.phase,
         stage_number: nextStageNumber,
@@ -660,6 +723,11 @@ export class GameService {
       room.updated_at = new Date().toISOString();
 
       const leaderboard = computeLeaderboard(players);
+
+      emitRoomEvent(code, {
+        type: 'game_finished',
+        payload: { final_leaderboard: leaderboard },
+      });
 
       return {
         phase: 'FINISHED' as GamePhase,
@@ -701,6 +769,11 @@ export class GameService {
     memoryStore.matchupScores.clear();
     memoryStore.stageScores.clear();
 
+    emitRoomEvent(code, {
+      type: 'room_phase_changed',
+      payload: { phase: 'LOBBY', current_stage_number: 1 },
+    });
+
     return {
       phase: 'LOBBY' as GamePhase,
       current_stage_number: 1,
@@ -731,6 +804,11 @@ export class GameService {
       players[0].is_host = true;
       room.host_player_id = players[0].id;
     }
+
+    emitRoomEvent(code, {
+      type: 'player_left',
+      payload: { player_id: leavingPlayer.id, new_host_id: room.host_player_id },
+    });
 
     return {
       success: true,
@@ -951,6 +1029,11 @@ export class GameService {
     memoryStore.votes.set(stageId, []);
     memoryStore.matchupScores.set(stageId, []);
 
+    emitRoomEvent(code, {
+      type: 'room_phase_changed',
+      payload: { phase: room.phase, current_stage_number: 1 },
+    });
+
     return {
       phase: room.phase,
       stage_number: 1,
@@ -992,6 +1075,11 @@ export class GameService {
     memoryStore.matchupScores.clear();
     memoryStore.stageScores.clear();
 
+    emitRoomEvent(code, {
+      type: 'room_phase_changed',
+      payload: { phase: 'LOBBY', current_stage_number: 1 },
+    });
+
     return {
       phase: 'LOBBY' as GamePhase,
       current_stage_number: 1,
@@ -1026,16 +1114,28 @@ export class GameService {
         currentStage.current_matchup_index = 0;
       }
       room.updated_at = new Date().toISOString();
+      emitRoomEvent(code, {
+        type: 'room_phase_changed',
+        payload: { phase: 'VOTING', current_stage_number: room.current_stage_number },
+      });
       return { phase: 'VOTING' as GamePhase, current_stage_number: room.current_stage_number };
     } else if (room.phase === 'VOTING') {
       const activeMatchupIndex = room.current_matchup_index;
       const activeMatchup = stageMatchups[activeMatchupIndex];
       if (activeMatchup && !activeMatchup.is_revealed) {
         activeMatchup.is_revealed = true;
+        emitRoomEvent(code, {
+          type: 'room_phase_changed',
+          payload: { phase: 'VOTING', current_stage_number: room.current_stage_number },
+        });
         return { phase: 'VOTING' as GamePhase, current_stage_number: room.current_stage_number, is_revealed: true };
       } else if (activeMatchupIndex + 1 < stageMatchups.length) {
         room.current_matchup_index = activeMatchupIndex + 1;
         room.updated_at = new Date().toISOString();
+        emitRoomEvent(code, {
+          type: 'matchup_advanced',
+          payload: { current_matchup_index: room.current_matchup_index, total_matchups: stageMatchups.length },
+        });
         return { phase: 'VOTING' as GamePhase, current_matchup_index: room.current_matchup_index };
       } else {
         room.phase = 'RESULTS';
@@ -1044,6 +1144,10 @@ export class GameService {
           currentStage.phase = 'RESULTS';
           currentStage.completed_at = new Date().toISOString();
         }
+        emitRoomEvent(code, {
+          type: 'room_phase_changed',
+          payload: { phase: 'RESULTS', current_stage_number: room.current_stage_number },
+        });
         return { phase: 'RESULTS' as GamePhase, current_stage_number: room.current_stage_number };
       }
     } else if (room.phase === 'RESULTS') {
@@ -1054,6 +1158,10 @@ export class GameService {
       }
       room.phase = 'FINISHED';
       room.updated_at = new Date().toISOString();
+      emitRoomEvent(code, {
+        type: 'room_phase_changed',
+        payload: { phase: 'FINISHED', current_stage_number: room.current_stage_number },
+      });
       return { phase: 'FINISHED' as GamePhase };
     } else {
       return await this.forceResetLobby(code, password);
@@ -1076,6 +1184,11 @@ export class GameService {
 
     room.phase = targetPhase;
     room.updated_at = new Date().toISOString();
+
+    emitRoomEvent(code, {
+      type: 'room_phase_changed',
+      payload: { phase: room.phase, current_stage_number: room.current_stage_number },
+    });
 
     return {
       phase: room.phase,

@@ -12,6 +12,32 @@
   }
 }
 
+@keyframes float-left-gentle {
+  0%, 100% {
+    transform: translateY(0px) rotate(-0.5deg);
+  }
+  50% {
+    transform: translateY(-6px) rotate(0.5deg);
+  }
+}
+
+@keyframes float-right-gentle {
+  0%, 100% {
+    transform: translateY(0px) rotate(0.5deg);
+  }
+  50% {
+    transform: translateY(-6px) rotate(-0.5deg);
+  }
+}
+
+.animate-float-left {
+  animation: float-left-gentle 4s ease-in-out infinite;
+}
+
+.animate-float-right {
+  animation: float-right-gentle 4.5s ease-in-out infinite;
+}
+
 /* Custom scrollbar */
 ::-webkit-scrollbar {
   width: 8px;
