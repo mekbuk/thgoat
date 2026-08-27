@@ -86,8 +86,7 @@ export function calculateMatchupResult(
     playerScoreDeltas[sub.player_id] = (playerScoreDeltas[sub.player_id] || 0) + points;
   });
 
-  // Sort options descending by votes received
-  options.sort((a, b) => b.votes_received - a.votes_received);
+  // Preserve consistent matchup submission order (Option A on left, Option B on right)
 
   const result: MatchupResult = {
     matchup_id: matchup.id,

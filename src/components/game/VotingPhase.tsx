@@ -111,13 +111,18 @@ export function VotingPhase({
 
   const isLastMatchup = order_index + 1 >= total_matchups;
 
-  // Distribute options for 1v1 side-by-side floating comparison
+  // Distribute options for 1v1 side-by-side floating comparison (Title A on left, Title B on right)
   const optionA = voting_options[0] || null;
   const optionB = voting_options[1] || null;
 
-  // Distribute result options for 1v1 revealed showdown
-  const resultOptionA = result?.options?.[0] || null;
-  const resultOptionB = result?.options?.[1] || null;
+  // Distribute result options for 1v1 revealed showdown (remains in the same place without swapping)
+  const resultOptionA = optionA
+    ? result?.options?.find((o) => o.submission_id === optionA.submission_id) || result?.options?.[0] || null
+    : result?.options?.[0] || null;
+
+  const resultOptionB = optionB
+    ? result?.options?.find((o) => o.submission_id === optionB.submission_id) || result?.options?.[1] || null
+    : result?.options?.[1] || null;
 
   const selectedOptionLetter =
     selectedId === optionA?.submission_id
