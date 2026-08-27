@@ -109,6 +109,15 @@ export default function RoomPage({ params }: { params: Promise<{ code: string }>
         type: 'room_phase_changed',
         payload: { phase: 'VOTING', current_stage_number: state.current_stage_number },
       });
+    } else {
+      await broadcastEvent({
+        type: 'submission_received',
+        payload: {
+          player_id: state.me?.id || '',
+          total_submitted: data.total_submitted,
+          total_required: data.total_required,
+        },
+      });
     }
     await refreshState();
   };
@@ -134,6 +143,11 @@ export default function RoomPage({ params }: { params: Promise<{ code: string }>
       await broadcastEvent({
         type: 'matchup_revealed',
         payload: { matchup_id: matchupId, result: data.result },
+      });
+    } else {
+      await broadcastEvent({
+        type: 'vote_received',
+        payload: { matchup_id: matchupId, total_voted: data.total_voted, total_required: data.total_required },
       });
     }
     await refreshState();

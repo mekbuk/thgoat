@@ -50,6 +50,13 @@ export function VotingPhase({
     }
   }, [currentMatchup?.is_revealed, currentMatchup?.matchup_id]);
 
+  // Reset local selection and error states when moving to a new matchup
+  useEffect(() => {
+    setSelectedId(null);
+    setIsVoting(false);
+    setError(null);
+  }, [currentMatchup?.matchup_id]);
+
   if (!currentMatchup) {
     return (
       <div className="flex flex-col items-center justify-center p-8 text-center space-y-4">

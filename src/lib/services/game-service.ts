@@ -38,18 +38,32 @@ function isSupabaseConfigured(): boolean {
   return true;
 }
 
-// In-memory cache/mock store for unit tests and local mock development
-const memoryStore = {
-  rooms: new Map<string, Room>(),
-  players: new Map<string, Player[]>(),
-  stages: new Map<string, Stage[]>(),
-  matchups: new Map<string, StageMatchup[]>(), // key: stageId
-  pictures: CURATED_PICTURES,
-  submissions: new Map<string, Submission[]>(), // key: stageId
-  votes: new Map<string, Vote[]>(), // key: stageId
-  matchupScores: new Map<string, MatchupResult[]>(), // key: stageId
-  stageScores: new Map<string, StageResultItem[]>(),
-};
+interface GameMemoryStore {
+  rooms: Map<string, Room>;
+  players: Map<string, Player[]>;
+  stages: Map<string, Stage[]>;
+  matchups: Map<string, StageMatchup[]>;
+  pictures: typeof CURATED_PICTURES;
+  submissions: Map<string, Submission[]>;
+  votes: Map<string, Vote[]>;
+  matchupScores: Map<string, MatchupResult[]>;
+  stageScores: Map<string, StageResultItem[]>;
+}
+
+// In-memory cache/mock store for unit tests and local mock development (persisted on globalThis for Next.js)
+const memoryStore: GameMemoryStore =
+  (globalThis as any).__throatgoat_memory_store || {
+    rooms: new Map<string, Room>(),
+    players: new Map<string, Player[]>(),
+    stages: new Map<string, Stage[]>(),
+    matchups: new Map<string, StageMatchup[]>(), // key: stageId
+    pictures: CURATED_PICTURES,
+    submissions: new Map<string, Submission[]>(), // key: stageId
+    votes: new Map<string, Vote[]>(), // key: stageId
+    matchupScores: new Map<string, MatchupResult[]>(), // key: stageId
+    stageScores: new Map<string, StageResultItem[]>(),
+  };
+(globalThis as any).__throatgoat_memory_store = memoryStore;
 
 export class GameService {
   /**
@@ -184,6 +198,32 @@ export class GameService {
         });
 
         if (playerErr) throw playerErr;
+
+        const newPlayer: Player = {
+          id: playerId,
+          room_id: room.id,
+          nickname,
+          session_token: sessionToken,
+          is_host: false,
+          score: 0,
+          is_connected: true,
+          joined_at: new Date().toISOString(),
+        };
+
+        const currentMemPlayers = memoryStore.players.get(code) || [];
+        currentMemPlayers.push(newPlayer);
+        memoryStore.players.set(code, currentMemPlayers);
+
+        emitRoomEvent(code, {
+          type: 'player_joined',
+          payload: {
+            id: playerId,
+            nickname,
+            is_host: false,
+            score: 0,
+            is_connected: true,
+          },
+        });
 
         return {
           room_id: room.id,

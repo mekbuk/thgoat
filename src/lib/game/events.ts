@@ -1,9 +1,11 @@
 import { EventEmitter } from 'events';
 import { RealtimeEventPayload } from '@/types/game';
 
-// Global Event Emitter for server-side real-time notifications
-const globalEventEmitter = new EventEmitter();
-globalEventEmitter.setMaxListeners(500);
+// Global Event Emitter for server-side real-time notifications across all Next.js API routes & dev recompiles
+const globalEventEmitter: EventEmitter =
+  (globalThis as any).__throatgoat_event_emitter || new EventEmitter();
+globalEventEmitter.setMaxListeners(1000);
+(globalThis as any).__throatgoat_event_emitter = globalEventEmitter;
 
 export function emitRoomEvent(roomCode: string, event: RealtimeEventPayload | { type: string; payload?: any }) {
   const channel = `room:${roomCode.toUpperCase()}`;

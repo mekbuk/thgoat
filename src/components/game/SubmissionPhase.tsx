@@ -32,14 +32,20 @@ export function SubmissionPhase({
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  // Sync active step if prompts change
+  // Track previous submission status to avoid wiping user's typed title on periodic background polling
+  const prevSubmittedKey = React.useRef<string>('');
+
   useEffect(() => {
-    const unsubmitted = prompts.findIndex((p) => !p.has_submitted);
-    if (unsubmitted !== -1) {
-      setActiveStep(unsubmitted);
-      setTitle('');
+    const submittedKey = prompts.map((p) => `${p.matchup_id}:${p.has_submitted}`).join('|');
+    if (prevSubmittedKey.current !== submittedKey) {
+      prevSubmittedKey.current = submittedKey;
+      const unsubmitted = prompts.findIndex((p) => !p.has_submitted);
+      if (unsubmitted !== -1 && unsubmitted !== activeStep) {
+        setActiveStep(unsubmitted);
+        setTitle('');
+      }
     }
-  }, [prompts]);
+  }, [prompts, activeStep]);
 
   const currentPrompt = prompts[activeStep] || {
     matchup_id: stage.stage_id,
