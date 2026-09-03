@@ -1,6 +1,8 @@
 'use client';
 
 import React from 'react';
+import Link from 'next/link';
+import Image from 'next/image';
 import { Crown, Users } from 'lucide-react';
 import { GamePhase } from '@/types/game';
 
@@ -41,10 +43,21 @@ export function GameHeader({
       <div className="mx-auto flex max-w-4xl items-center justify-between">
         {/* Left: Brand & Room Code */}
         <div className="flex items-center space-x-3">
-          <div className="flex items-center space-x-1.5 font-black text-rose-500 text-lg tracking-tight">
-            <span>THROAT</span>
-            <span className="text-amber-400">GOAT</span>
-          </div>
+          <Link href="/" className="flex items-center space-x-2 group">
+            <div className="w-7 h-7 rounded-lg overflow-hidden flex items-center justify-center bg-slate-800 border border-rose-500/30">
+              <Image
+                src="/icon/image.png"
+                alt="Throat Goat Logo"
+                width={28}
+                height={28}
+                className="w-full h-full object-cover"
+              />
+            </div>
+            <div className="flex items-center space-x-1 font-black text-rose-500 text-lg tracking-tight font-comic">
+              <span>THROAT</span>
+              <span className="text-amber-400">GOAT</span>
+            </div>
+          </Link>
           <div className="hidden sm:flex items-center space-x-1 rounded-md bg-slate-800 px-2.5 py-1 text-xs font-mono font-bold text-slate-300 border border-slate-700">
             <span className="text-slate-500">ROOM:</span>
             <span className="text-amber-300 tracking-wider">{roomCode}</span>

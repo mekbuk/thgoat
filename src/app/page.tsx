@@ -2,6 +2,7 @@
 
 import React, { useState } from 'react';
 import { useRouter } from 'next/navigation';
+import Image from 'next/image';
 import { Sparkles, Users, Play, LogIn, Flame, Trophy } from 'lucide-react';
 import { ToastError } from '@/components/shared/ToastError';
 
@@ -83,7 +84,18 @@ export default function LandingPage() {
   return (
     <div className="flex-1 flex flex-col items-center justify-center p-4 sm:p-6 max-w-4xl mx-auto w-full min-h-[85vh]">
       {/* Hero Header */}
-      <div className="text-center space-y-4 my-6 animate-fade-in">
+      <div className="text-center space-y-4 my-6 animate-fade-in flex flex-col items-center">
+        <div className="w-20 h-20 sm:w-24 sm:h-24 rounded-3xl bg-gradient-to-br from-rose-500 via-pink-500 to-amber-400 p-1 shadow-2xl shadow-rose-500/25 flex items-center justify-center overflow-hidden mb-1">
+          <Image
+            src="/icon/image.png"
+            alt="Throat Goat"
+            width={96}
+            height={96}
+            className="w-full h-full object-cover rounded-[20px]"
+            priority
+          />
+        </div>
+
         <div className="inline-flex items-center space-x-2 rounded-full bg-rose-500/10 border border-rose-500/30 px-4 py-1.5 text-xs sm:text-sm font-bold text-rose-400">
           <Flame className="w-4 h-4 text-amber-400" />
           <span>MULTIPLAYER TATTOO TITLE CONTEST</span>

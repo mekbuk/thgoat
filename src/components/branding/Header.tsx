@@ -2,6 +2,7 @@
 
 import React from 'react';
 import Link from 'next/link';
+import Image from 'next/image';
 import { Sparkles, Flame, Users } from 'lucide-react';
 
 export const Header: React.FC = () => {
@@ -13,8 +14,15 @@ export const Header: React.FC = () => {
           href="/"
           className="flex items-center gap-2.5 group transition-transform hover:scale-105"
         >
-          <div className="w-10 h-10 rounded-2xl bg-gradient-to-br from-rose-500 via-pink-500 to-amber-400 p-0.5 shadow-lg shadow-rose-500/20 flex items-center justify-center">
-            <span className="text-xl select-none">🐐</span>
+          <div className="w-10 h-10 rounded-2xl bg-gradient-to-br from-rose-500 via-pink-500 to-amber-400 p-0.5 shadow-lg shadow-rose-500/20 flex items-center justify-center overflow-hidden">
+            <Image
+              src="/icon/image.png"
+              alt="Throat Goat Logo"
+              width={40}
+              height={40}
+              className="w-full h-full object-cover rounded-[14px]"
+              priority
+            />
           </div>
           <div>
             <h1 className="text-xl font-black tracking-tight text-white flex items-center gap-1.5 font-comic">
