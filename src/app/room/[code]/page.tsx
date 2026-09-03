@@ -12,6 +12,7 @@ import { FinalLeaderboard } from '@/components/leaderboard/FinalLeaderboard';
 import { LoadingSpinner } from '@/components/shared/LoadingSpinner';
 import { ToastError } from '@/components/shared/ToastError';
 import { AdminModal } from '@/components/admin/AdminModal';
+import { InGameScreen } from '@/components/game/InGameScreen';
 import { GamePhase } from '@/types/game';
 
 export default function RoomPage({ params }: { params: Promise<{ code: string }> }) {
@@ -222,19 +223,19 @@ export default function RoomPage({ params }: { params: Promise<{ code: string }>
     await refreshState();
   };
 
-  return (
-    <div className="flex-1 flex flex-col w-full min-h-[90vh]">
-      <GameHeader
-        roomCode={state.room_code}
-        phase={state.phase}
-        currentStageNumber={state.current_stage_number}
-        playerCount={state.players.length}
-        myNickname={state.me?.nickname}
-        isHost={isHost}
-      />
+  if (state.phase === 'LOBBY') {
+    return (
+      <div className="flex-1 flex flex-col w-full min-h-[90vh]">
+        <GameHeader
+          roomCode={state.room_code}
+          phase={state.phase}
+          currentStageNumber={state.current_stage_number}
+          playerCount={state.players.length}
+          myNickname={state.me?.nickname}
+          isHost={isHost}
+        />
 
-      <main className="flex-1 flex flex-col items-center justify-center p-2 sm:p-4 w-full">
-        {state.phase === 'LOBBY' && (
+        <main className="flex-1 flex flex-col items-center justify-center p-2 sm:p-4 w-full">
           <LobbyView
             roomCode={state.room_code}
             players={state.players}
@@ -242,48 +243,71 @@ export default function RoomPage({ params }: { params: Promise<{ code: string }>
             myPlayerId={state.me?.id}
             onStartGame={handleStartGame}
           />
-        )}
+        </main>
 
-        {state.phase === 'SUBMITTING' && state.current_stage && (
-          <SubmissionPhase
-            stage={state.current_stage}
-            prompts={state.my_prompts}
-            hasSubmitted={state.me?.has_submitted || false}
-            onSubmitTitle={handleSubmitTitle}
-            totalSubmitted={state.players.reduce((acc, p) => acc + (p.is_connected ? 1 : 0), 0)}
-            totalRequired={state.players.filter((p) => p.is_connected).length}
-          />
-        )}
+        <AdminModal
+          isOpen={isAdminOpen}
+          onClose={() => setIsAdminOpen(false)}
+          roomCode={code}
+          currentPhase={state.phase}
+          onActionComplete={handleAdminActionComplete}
+        />
 
-        {state.phase === 'VOTING' && (
-          <VotingPhase
-            stage={state.current_stage}
-            currentMatchup={state.current_matchup}
-            isHost={isHost}
-            onCastVote={handleCastVote}
-            onAdvanceMatchup={handleAdvanceMatchup}
-          />
-        )}
+        <ToastError message={error} onDismiss={() => setError(null)} />
+      </div>
+    );
+  }
 
-        {state.phase === 'RESULTS' && (
-          <ResultsPhase
-            stageNumber={state.current_stage_number}
-            matchupResults={state.stage_matchup_results}
-            results={state.stage_results}
-            players={state.players}
-            isHost={isHost}
-            onAdvanceStage={handleAdvanceStage}
-          />
-        )}
+  return (
+    <InGameScreen
+      roomCode={state.room_code}
+      phase={state.phase}
+      currentStageNumber={state.current_stage_number}
+      players={state.players}
+      me={state.me}
+      isHost={isHost}
+      currentMatchup={state.current_matchup}
+      onOpenAdmin={() => setIsAdminOpen(true)}
+    >
+      {state.phase === 'SUBMITTING' && state.current_stage && (
+        <SubmissionPhase
+          stage={state.current_stage}
+          prompts={state.my_prompts}
+          hasSubmitted={state.me?.has_submitted || false}
+          onSubmitTitle={handleSubmitTitle}
+          totalSubmitted={state.players.reduce((acc, p) => acc + (p.is_connected ? 1 : 0), 0)}
+          totalRequired={state.players.filter((p) => p.is_connected).length}
+        />
+      )}
 
-        {state.phase === 'FINISHED' && (
-          <FinalLeaderboard
-            leaderboard={state.final_leaderboard}
-            isHost={isHost}
-            onPlayAgain={handlePlayAgain}
-          />
-        )}
-      </main>
+      {state.phase === 'VOTING' && (
+        <VotingPhase
+          stage={state.current_stage}
+          currentMatchup={state.current_matchup}
+          isHost={isHost}
+          onCastVote={handleCastVote}
+          onAdvanceMatchup={handleAdvanceMatchup}
+        />
+      )}
+
+      {state.phase === 'RESULTS' && (
+        <ResultsPhase
+          stageNumber={state.current_stage_number}
+          matchupResults={state.stage_matchup_results}
+          results={state.stage_results}
+          players={state.players}
+          isHost={isHost}
+          onAdvanceStage={handleAdvanceStage}
+        />
+      )}
+
+      {state.phase === 'FINISHED' && (
+        <FinalLeaderboard
+          leaderboard={state.final_leaderboard}
+          isHost={isHost}
+          onPlayAgain={handlePlayAgain}
+        />
+      )}
 
       {/* Admin Emergency Control Panel (Ctrl+Alt+R) */}
       <AdminModal
@@ -295,6 +319,6 @@ export default function RoomPage({ params }: { params: Promise<{ code: string }>
       />
 
       <ToastError message={error} onDismiss={() => setError(null)} />
-    </div>
+    </InGameScreen>
   );
 }

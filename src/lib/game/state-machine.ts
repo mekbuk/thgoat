@@ -2,7 +2,7 @@ import { GamePhase, StagePhase } from '@/types/game';
 
 export const MIN_PLAYERS = 3;
 export const MAX_PLAYERS = 8;
-export const TOTAL_STAGES = 2;
+export const TOTAL_STAGES = 3;
 
 export interface StateValidationResult {
   isValid: boolean;

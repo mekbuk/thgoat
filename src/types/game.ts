@@ -100,6 +100,9 @@ export interface PlayerSummary {
   is_host: boolean;
   score: number;
   is_connected: boolean;
+  has_submitted?: boolean;
+  has_voted?: boolean;
+  is_author_in_matchup?: boolean;
 }
 
 export interface CurrentPlayer {

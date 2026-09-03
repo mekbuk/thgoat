@@ -908,20 +908,21 @@ export class GameService {
     // Current active matchup for VOTING phase
     let currentMatchupInfo: CurrentMatchupInfo | null = null;
     let votingOptions: VotingOption[] = [];
+    let activeMatchup: StageMatchup | undefined;
 
     if (currentStage && stageMatchups.length > 0) {
       const activeMatchupIndex = Math.min(room.current_matchup_index, stageMatchups.length - 1);
-      const activeMatchup = stageMatchups[activeMatchupIndex];
+      activeMatchup = stageMatchups[activeMatchupIndex];
 
       if (activeMatchup) {
         const isAuthor = activeMatchup.player1_id === me.id || activeMatchup.player2_id === me.id;
-        const matchupSubs = stageSubmissions.filter((s) => s.matchup_id === activeMatchup.id);
-        const matchupVotes = stageVotes.filter((v) => v.matchup_id === activeMatchup.id);
+        const matchupSubs = stageSubmissions.filter((s) => s.matchup_id === activeMatchup!.id);
+        const matchupVotes = stageVotes.filter((v) => v.matchup_id === activeMatchup!.id);
         const myVote = matchupVotes.find((v) => v.voter_player_id === me.id);
 
         const activePlayers = players.filter((p) => p.is_connected);
         const eligibleVoters = activePlayers.filter(
-          (p) => p.id !== activeMatchup.player1_id && p.id !== activeMatchup.player2_id
+          (p) => p.id !== activeMatchup!.player1_id && p.id !== activeMatchup!.player2_id
         );
 
         if (!isAuthor) {
@@ -931,7 +932,8 @@ export class GameService {
           }));
         }
 
-        const matchupResult = stageMatchupScores.find((r) => r.matchup_id === activeMatchup.id) || null;
+        const currentMatchupId = activeMatchup.id;
+        const matchupResult = stageMatchupScores.find((r) => r.matchup_id === currentMatchupId) || null;
 
         currentMatchupInfo = {
           matchup_id: activeMatchup.id,
@@ -978,13 +980,32 @@ export class GameService {
       current_matchup_index: room.current_matchup_index,
       total_matchups: stageMatchups.length,
       host_player_id: room.host_player_id,
-      players: players.map((p) => ({
-        id: p.id,
-        nickname: p.nickname,
-        is_host: p.is_host,
-        score: p.score,
-        is_connected: p.is_connected,
-      })),
+      players: players.map((p) => {
+        const pAssigned = stageMatchups.filter(
+          (m) => m.player1_id === p.id || m.player2_id === p.id
+        );
+        const pSubs = stageSubmissions.filter((s) => s.player_id === p.id);
+        const pHasSubmitted = pAssigned.length > 0 ? pSubs.length >= pAssigned.length : false;
+        const pHasVoted = currentMatchupInfo
+          ? stageVotes.some(
+              (v) => v.matchup_id === currentMatchupInfo.matchup_id && v.voter_player_id === p.id
+            )
+          : false;
+        const pIsAuthor = activeMatchup
+          ? activeMatchup.player1_id === p.id || activeMatchup.player2_id === p.id
+          : false;
+
+        return {
+          id: p.id,
+          nickname: p.nickname,
+          is_host: p.is_host,
+          score: p.score,
+          is_connected: p.is_connected,
+          has_submitted: pHasSubmitted,
+          has_voted: pHasVoted,
+          is_author_in_matchup: pIsAuthor,
+        };
+      }),
       me: {
         id: me.id,
         nickname: me.nickname,
