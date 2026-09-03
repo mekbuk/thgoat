@@ -653,6 +653,48 @@ export class GameService {
     }
 
     const stageMatchups = memoryStore.matchups.get(currentStage.id) || [];
+    const activeMatchup = stageMatchups[room.current_matchup_index];
+
+    // If current matchup has not been revealed yet, reveal it first
+    if (activeMatchup && !activeMatchup.is_revealed) {
+      activeMatchup.is_revealed = true;
+
+      const stageSubmissions = memoryStore.submissions.get(currentStage.id) || [];
+      const stageVotes = memoryStore.votes.get(currentStage.id) || [];
+
+      const { result, playerScoreDeltas } = calculateMatchupResult(
+        activeMatchup,
+        stageSubmissions,
+        stageVotes,
+        players
+      );
+
+      // Update player scores
+      players.forEach((p) => {
+        if (playerScoreDeltas[p.id]) {
+          p.score += playerScoreDeltas[p.id];
+        }
+      });
+
+      const existingScores = memoryStore.matchupScores.get(currentStage.id) || [];
+      const updatedScores = existingScores.filter((r) => r.matchup_id !== activeMatchup.id);
+      updatedScores.push(result);
+      memoryStore.matchupScores.set(currentStage.id, updatedScores);
+
+      emitRoomEvent(code, {
+        type: 'matchup_revealed',
+        payload: { matchup_id: activeMatchup.id, result },
+      });
+
+      return {
+        phase: 'VOTING' as GamePhase,
+        current_matchup_index: room.current_matchup_index,
+        total_matchups: stageMatchups.length,
+        is_revealed: true,
+        result,
+      };
+    }
+
     const nextMatchupIndex = room.current_matchup_index + 1;
 
     if (nextMatchupIndex < stageMatchups.length) {
@@ -925,12 +967,12 @@ export class GameService {
           (p) => p.id !== activeMatchup!.player1_id && p.id !== activeMatchup!.player2_id
         );
 
-        if (!isAuthor) {
-          votingOptions = matchupSubs.map((s) => ({
-            submission_id: s.id,
-            title: s.title,
-          }));
-        }
+        // Provide voting options to all players including authors so titles are visible to everyone
+        votingOptions = matchupSubs.map((s) => ({
+          submission_id: s.id,
+          title: s.title,
+          is_mine: s.player_id === me.id,
+        }));
 
         const currentMatchupId = activeMatchup.id;
         const matchupResult = stageMatchupScores.find((r) => r.matchup_id === currentMatchupId) || null;

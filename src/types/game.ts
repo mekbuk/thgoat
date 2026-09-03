@@ -139,6 +139,7 @@ export interface PlayerPromptInfo {
 export interface VotingOption {
   submission_id: string;
   title: string;
+  is_mine?: boolean;
 }
 
 export interface MatchupResultOption {

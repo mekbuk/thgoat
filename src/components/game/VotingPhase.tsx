@@ -259,6 +259,8 @@ export function VotingPhase({
                   ? 'bg-rose-950/80 border-rose-400 text-white ring-4 ring-rose-500/30 shadow-rose-500/30'
                   : my_vote_submission_id === optionA.submission_id
                   ? 'bg-purple-950/80 border-purple-400 ring-2 ring-purple-400/40 text-white'
+                  : optionA.is_mine
+                  ? 'bg-[#1a0e2e]/90 border-amber-500/60 ring-2 ring-amber-500/30 shadow-amber-950/40 text-white'
                   : 'bg-slate-900/90 border-slate-800/90 text-slate-200 hover:border-rose-500/50 hover:bg-slate-850'
               }`}
             >
@@ -267,6 +269,13 @@ export function VotingPhase({
                   <Sparkles className="w-3 h-3 text-rose-400" />
                   <span>TITLE A</span>
                 </span>
+
+                {optionA.is_mine && (
+                  <span className="inline-flex items-center space-x-1 rounded-full bg-amber-500/25 text-amber-300 border border-amber-500/50 px-2.5 py-0.5 text-[11px] font-black animate-pulse">
+                    <Sparkles className="w-3 h-3 text-amber-400" />
+                    <span>YOUR TITLE</span>
+                  </span>
+                )}
 
                 {!has_voted && !is_author && (
                   <div
@@ -294,11 +303,15 @@ export function VotingPhase({
                 &ldquo;{optionA.title}&rdquo;
               </p>
 
-              {!has_voted && !is_author && (
+              {!has_voted && !is_author ? (
                 <div className="pt-2 text-[11px] font-semibold text-rose-300/80 text-right">
                   {selectedId === optionA.submission_id ? '✓ Selected' : 'Click to select'}
                 </div>
-              )}
+              ) : is_author ? (
+                <div className="pt-2 text-[11px] font-semibold text-slate-400 text-right">
+                  {optionA.is_mine ? 'Your title in this battle' : 'Opponent’s title'}
+                </div>
+              ) : null}
             </div>
           ) : null}
         </div>
@@ -392,6 +405,8 @@ export function VotingPhase({
                   ? 'bg-indigo-950/80 border-indigo-400 text-white ring-4 ring-indigo-500/30 shadow-indigo-500/30'
                   : my_vote_submission_id === optionB.submission_id
                   ? 'bg-purple-950/80 border-purple-400 ring-2 ring-purple-400/40 text-white'
+                  : optionB.is_mine
+                  ? 'bg-[#1a0e2e]/90 border-amber-500/60 ring-2 ring-amber-500/30 shadow-amber-950/40 text-white'
                   : 'bg-slate-900/90 border-slate-800/90 text-slate-200 hover:border-indigo-500/50 hover:bg-slate-850'
               }`}
             >
@@ -400,6 +415,13 @@ export function VotingPhase({
                   <Sparkles className="w-3 h-3 text-indigo-400" />
                   <span>TITLE B</span>
                 </span>
+
+                {optionB.is_mine && (
+                  <span className="inline-flex items-center space-x-1 rounded-full bg-amber-500/25 text-amber-300 border border-amber-500/50 px-2.5 py-0.5 text-[11px] font-black animate-pulse">
+                    <Sparkles className="w-3 h-3 text-amber-400" />
+                    <span>YOUR TITLE</span>
+                  </span>
+                )}
 
                 {!has_voted && !is_author && (
                   <div
@@ -427,11 +449,15 @@ export function VotingPhase({
                 &ldquo;{optionB.title}&rdquo;
               </p>
 
-              {!has_voted && !is_author && (
+              {!has_voted && !is_author ? (
                 <div className="pt-2 text-[11px] font-semibold text-indigo-300/80 text-right">
                   {selectedId === optionB.submission_id ? '✓ Selected' : 'Click to select'}
                 </div>
-              )}
+              ) : is_author ? (
+                <div className="pt-2 text-[11px] font-semibold text-slate-400 text-right">
+                  {optionB.is_mine ? 'Your title in this battle' : 'Opponent’s title'}
+                </div>
+              ) : null}
             </div>
           ) : null}
         </div>
@@ -461,32 +487,46 @@ export function VotingPhase({
           </div>
         ) : is_author ? (
           /* Author Spectating Status */
-          <div className="w-full rounded-2xl border border-rose-500/40 bg-rose-950/40 p-4 text-center space-y-2 shadow-xl animate-in fade-in">
-            <div className="flex items-center justify-center space-x-2 text-rose-300 text-sm font-bold">
-              <Flame className="w-4 h-4 text-rose-400 animate-pulse" />
-              <span>You Wrote One of These Titles!</span>
-            </div>
-            <p className="text-xs text-rose-300/70">
-              Spectating while the room votes on this matchup.
-            </p>
-            <div className="inline-flex items-center space-x-2 text-xs font-bold text-rose-400 bg-rose-950/80 px-3 py-1.5 rounded-full border border-rose-500/30">
-              <Clock className="w-3 h-3 animate-spin" />
-              <span>
-                {total_eligible_voters > 0
-                  ? `Votes cast: ${total_voted}/${total_eligible_voters}`
-                  : 'Waiting for reveal...'}
-              </span>
-            </div>
-            {isHost && total_eligible_voters === 0 && (
-              <div className="pt-2">
-                <button
-                  onClick={handleAdvance}
-                  className="py-2 px-4 rounded-xl bg-rose-600 hover:bg-rose-500 text-white text-xs font-bold transition-all shadow-md"
-                >
-                  Reveal Matchup Results
-                </button>
+          <div className="space-y-3">
+            {/* Disabled Voting Button */}
+            <button
+              type="button"
+              disabled
+              className="w-full py-4 px-6 rounded-2xl font-black text-base shadow-xl flex items-center justify-center space-x-2 bg-slate-900/90 text-slate-500 cursor-not-allowed border border-slate-750/70 select-none opacity-60"
+              title="You wrote one of these titles and cannot vote on this matchup"
+            >
+              <Trophy className="w-4 h-4 text-slate-600" />
+              <span>Voting Disabled (You Wrote One of These Titles)</span>
+            </button>
+
+            {/* Spectating & Live Vote Count Box */}
+            <div className="w-full rounded-2xl border border-rose-500/40 bg-rose-950/40 p-4 text-center space-y-2 shadow-xl animate-in fade-in">
+              <div className="flex items-center justify-center space-x-2 text-rose-300 text-sm font-bold">
+                <Flame className="w-4 h-4 text-rose-400 animate-pulse" />
+                <span>You Wrote One of These Titles!</span>
               </div>
-            )}
+              <p className="text-xs text-rose-300/70">
+                Spectating while the room votes on this matchup.
+              </p>
+              <div className="inline-flex items-center space-x-2 text-xs font-bold text-rose-400 bg-rose-950/80 px-3 py-1.5 rounded-full border border-rose-500/30">
+                <Clock className="w-3 h-3 animate-spin" />
+                <span>
+                  {total_eligible_voters > 0
+                    ? `Votes cast: ${total_voted}/${total_eligible_voters}`
+                    : 'Waiting for reveal...'}
+                </span>
+              </div>
+              {isHost && (total_eligible_voters === 0 || total_voted >= total_eligible_voters) && (
+                <div className="pt-2">
+                  <button
+                    onClick={handleAdvance}
+                    className="py-2 px-4 rounded-xl bg-rose-600 hover:bg-rose-500 text-white text-xs font-bold transition-all shadow-md"
+                  >
+                    Reveal Matchup Results
+                  </button>
+                </div>
+              )}
+            </div>
           </div>
         ) : has_voted ? (
           /* Voter Already Voted Status */
