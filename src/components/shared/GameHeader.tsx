@@ -44,13 +44,15 @@ export function GameHeader({
         {/* Left: Brand & Room Code */}
         <div className="flex items-center space-x-3">
           <Link href="/" className="flex items-center space-x-2 group">
-            <div className="w-7 h-7 rounded-lg overflow-hidden flex items-center justify-center bg-slate-800 border border-rose-500/30">
+            <div className="relative flex items-center justify-center w-8 h-8">
+              {/* Subtle ambient aura */}
+              <div className="absolute inset-0 bg-rose-500/25 rounded-full blur-[2px] pointer-events-none" />
               <Image
                 src="/icon.png"
                 alt="Throat Goat Logo"
-                width={28}
-                height={28}
-                className="w-full h-full object-cover"
+                width={32}
+                height={32}
+                className="relative w-full h-full object-contain filter drop-shadow-[0_2px_6px_rgba(244,63,94,0.45)] drop-shadow-[0_1px_2px_rgba(0,0,0,0.5)] select-none"
               />
             </div>
             <div className="flex items-center space-x-1 font-black text-rose-500 text-lg tracking-tight font-comic">

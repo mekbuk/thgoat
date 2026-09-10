@@ -108,15 +108,26 @@ export default function LandingPage() {
       <div className="flex-1 flex flex-col items-center justify-center p-4 sm:p-6 max-w-4xl mx-auto w-full relative z-10">
         {/* Hero Header */}
         <div className="text-center space-y-4 my-6 animate-fade-in flex flex-col items-center">
-          <div className="w-20 h-20 sm:w-24 sm:h-24 rounded-3xl bg-gradient-to-br from-rose-500 via-pink-500 to-amber-400 p-1 shadow-2xl shadow-rose-500/25 flex items-center justify-center overflow-hidden mb-1">
-            <Image
-              src="/icon.png"
-              alt="Throat Goat"
-              width={96}
-              height={96}
-              className="w-full h-full object-cover rounded-[20px]"
-              priority
-            />
+          {/* Hero Mascot Icon (Character Cutout with ambient glow & depth, no rectangular frame) */}
+          <div className="relative flex items-center justify-center mb-2">
+            {/* Soft ambient aura / halo glow behind the goat */}
+            <div className="absolute inset-0 -m-5 rounded-full bg-gradient-to-tr from-rose-500/30 via-pink-500/20 to-amber-400/25 blur-2xl pointer-events-none" />
+            <div className="absolute inset-0 -m-1 rounded-full bg-rose-500/15 blur-lg pointer-events-none" />
+
+            {/* Mascot Image with multi-layer drop-shadow conforming to goat silhouette */}
+            <div className="relative w-28 h-28 sm:w-32 sm:h-32 flex items-center justify-center">
+              <Image
+                src="/icon.png"
+                alt="Throat Goat"
+                width={128}
+                height={128}
+                className="w-full h-full object-contain filter drop-shadow-[0_12px_24px_rgba(244,63,94,0.45)] drop-shadow-[0_4px_10px_rgba(251,191,36,0.3)] drop-shadow-[0_2px_4px_rgba(0,0,0,0.6)] select-none"
+                priority
+              />
+            </div>
+
+            {/* Ground contact shadow beneath hooves */}
+            <div className="absolute -bottom-1 left-1/2 -translate-x-1/2 w-20 sm:w-24 h-2.5 bg-black/50 rounded-full blur-[3px] pointer-events-none" />
           </div>
 
           <div className="inline-flex items-center space-x-2 rounded-full bg-rose-500/10 border border-rose-500/30 px-4 py-1.5 text-xs sm:text-sm font-bold text-rose-400">

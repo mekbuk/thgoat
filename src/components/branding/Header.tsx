@@ -22,13 +22,15 @@ export const Header: React.FC = () => {
           href="/"
           className="flex items-center gap-2.5 group transition-transform hover:scale-105"
         >
-          <div className="w-10 h-10 rounded-2xl bg-gradient-to-br from-rose-500 via-pink-500 to-amber-400 p-0.5 shadow-lg shadow-rose-500/20 flex items-center justify-center overflow-hidden">
+          <div className="relative flex items-center justify-center w-10 h-10">
+            {/* Ambient backlight glow */}
+            <div className="absolute inset-0 bg-gradient-to-tr from-rose-500/30 to-amber-400/20 rounded-full blur-md pointer-events-none" />
             <Image
               src="/icon.png"
               alt="Throat Goat Logo"
               width={40}
               height={40}
-              className="w-full h-full object-cover rounded-[14px]"
+              className="relative w-full h-full object-contain filter drop-shadow-[0_4px_10px_rgba(244,63,94,0.4)] drop-shadow-[0_1px_3px_rgba(0,0,0,0.5)] select-none"
               priority
             />
           </div>
