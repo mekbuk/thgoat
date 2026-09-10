@@ -27,7 +27,6 @@ export const submitTitleSchema = z.object({
   title: z
     .string()
     .trim()
-    .min(1, 'Title must be at least 1 character')
     .max(100, 'Title cannot exceed 100 characters'),
 });
 

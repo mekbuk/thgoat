@@ -1,9 +1,10 @@
 'use client';
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { Send, CheckCircle2, Sparkles, Clock, ArrowRight, Check } from 'lucide-react';
 import { ImageCard } from '@/components/shared/ImageCard';
 import { ActiveStageInfo, PlayerPromptInfo } from '@/types/game';
+import { useGameTimer } from './InGameScreen';
 
 interface SubmissionPhaseProps {
   stage: ActiveStageInfo;
@@ -28,12 +29,16 @@ export function SubmissionPhase({
     firstUnsubmittedIndex !== -1 ? firstUnsubmittedIndex : 0
   );
 
+  const [drafts, setDrafts] = useState<Record<string, string>>({});
   const [title, setTitle] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  const autoSubmittedRef = useRef(false);
+  const { timeLeft } = useGameTimer();
+
   // Track previous submission status to avoid wiping user's typed title on periodic background polling
-  const prevSubmittedKey = React.useRef<string>('');
+  const prevSubmittedKey = useRef<string>('');
 
   useEffect(() => {
     const submittedKey = prompts.map((p) => `${p.matchup_id}:${p.has_submitted}`).join('|');
@@ -42,10 +47,11 @@ export function SubmissionPhase({
       const unsubmitted = prompts.findIndex((p) => !p.has_submitted);
       if (unsubmitted !== -1 && unsubmitted !== activeStep) {
         setActiveStep(unsubmitted);
-        setTitle('');
+        const targetPrompt = prompts[unsubmitted];
+        setTitle(targetPrompt ? drafts[targetPrompt.matchup_id] || '' : '');
       }
     }
-  }, [prompts, activeStep]);
+  }, [prompts, activeStep, drafts]);
 
   const currentPrompt = prompts[activeStep] || {
     matchup_id: stage.stage_id,
@@ -60,6 +66,49 @@ export function SubmissionPhase({
   const totalPrompts = prompts.length || 2;
   const allCompleted = prompts.length > 0 ? prompts.every((p) => p.has_submitted) : hasSubmitted;
 
+  const handleTitleChange = (val: string) => {
+    setTitle(val);
+    if (currentPrompt?.matchup_id) {
+      setDrafts((prev) => ({
+        ...prev,
+        [currentPrompt.matchup_id]: val,
+      }));
+    }
+  };
+
+  const handleSelectPrompt = (idx: number) => {
+    setActiveStep(idx);
+    const targetPrompt = prompts[idx];
+    if (targetPrompt) {
+      setTitle(drafts[targetPrompt.matchup_id] || '');
+    }
+  };
+
+  // Auto-submit all unsubmitted drafts when the round timer runs out
+  const autoSubmitAllDrafts = useCallback(async () => {
+    if (autoSubmittedRef.current) return;
+    autoSubmittedRef.current = true;
+
+    for (const p of prompts) {
+      if (!p.has_submitted) {
+        // If the user typed something, submit it; if not, submit blank ""
+        const text = (drafts[p.matchup_id] ?? (p.matchup_id === currentPrompt.matchup_id ? title : '')).trim();
+        try {
+          await onSubmitTitle(p.matchup_id, text);
+        } catch (err) {
+          console.error(`Auto-submit on timeout failed for matchup ${p.matchup_id}:`, err);
+        }
+      }
+    }
+  }, [prompts, drafts, currentPrompt.matchup_id, title, onSubmitTitle]);
+
+  // Trigger auto-submit when timer reaches 0
+  useEffect(() => {
+    if (timeLeft === 0 && !allCompleted) {
+      autoSubmitAllDrafts();
+    }
+  }, [timeLeft, allCompleted, autoSubmitAllDrafts]);
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!title.trim() || isSubmitting || currentPrompt.has_submitted) return;
@@ -67,12 +116,18 @@ export function SubmissionPhase({
     setIsSubmitting(true);
     setError(null);
 
+    const titleToSubmit = (drafts[currentPrompt.matchup_id] ?? title).trim();
+
     try {
-      await onSubmitTitle(currentPrompt.matchup_id, title.trim());
-      setTitle('');
+      await onSubmitTitle(currentPrompt.matchup_id, titleToSubmit);
       // Advance to next prompt if available
       if (activeStep + 1 < totalPrompts) {
-        setActiveStep(activeStep + 1);
+        const nextIdx = activeStep + 1;
+        setActiveStep(nextIdx);
+        const nextPrompt = prompts[nextIdx];
+        setTitle(nextPrompt ? drafts[nextPrompt.matchup_id] || '' : '');
+      } else {
+        setTitle('');
       }
     } catch (err: any) {
       setError(err?.message || 'Failed to submit title');
@@ -101,7 +156,7 @@ export function SubmissionPhase({
               <button
                 key={p.matchup_id || idx}
                 type="button"
-                onClick={() => !p.has_submitted && setActiveStep(idx)}
+                onClick={() => !p.has_submitted && handleSelectPrompt(idx)}
                 className={`flex items-center space-x-1 px-3 py-1 rounded-full text-xs font-bold transition-all ${
                   p.has_submitted
                     ? 'bg-emerald-950/80 border border-emerald-500/50 text-emerald-400'
@@ -160,7 +215,11 @@ export function SubmissionPhase({
                   >
                     <span className="font-semibold text-slate-300">Picture #{idx + 1}</span>
                     <span className="font-comic font-bold text-emerald-300">
-                      &ldquo;{p.submitted_title || 'Submitted'}&rdquo;
+                      {p.submitted_title?.trim() ? (
+                        <>&ldquo;{p.submitted_title}&rdquo;</>
+                      ) : (
+                        <span className="italic text-slate-400 font-sans font-normal">(blank)</span>
+                      )}
                     </span>
                   </div>
                 ))}
@@ -190,7 +249,7 @@ export function SubmissionPhase({
                   maxLength={100}
                   placeholder="Type your funniest title here..."
                   value={title}
-                  onChange={(e) => setTitle(e.target.value)}
+                  onChange={(e) => handleTitleChange(e.target.value)}
                   className="w-full rounded-2xl bg-slate-900 border-2 border-slate-700 px-4 py-4 text-base font-semibold text-white placeholder-slate-500 focus:border-rose-500 focus:outline-none focus:ring-1 focus:ring-rose-500 shadow-inner"
                   autoFocus
                   required

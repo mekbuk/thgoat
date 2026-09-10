@@ -430,7 +430,7 @@ export class GameService {
       stage_id: stageId,
       matchup_id: targetMatchup.id,
       player_id: caller.id,
-      title: title.trim(),
+      title: title ? title.trim() : '',
       created_at: new Date().toISOString(),
     };
 
@@ -732,6 +732,160 @@ export class GameService {
         current_stage_number: room.current_stage_number,
       };
     }
+  }
+
+  /**
+   * Handles timeout when round/stage timer elapses.
+   * In SUBMITTING: Fills any missing prompt submissions with "" (blank) and transitions to VOTING.
+   * In VOTING: If current matchup is not revealed yet, reveals the matchup results with existing votes.
+   */
+  static async handleTimeout(
+    roomCode: string,
+    sessionToken: string,
+    expectedPhase?: GamePhase,
+    matchupId?: string
+  ) {
+    const code = roomCode.toUpperCase();
+    const room = memoryStore.rooms.get(code);
+    if (!room) {
+      throw { status: 404, message: 'Room not found' };
+    }
+
+    const players = memoryStore.players.get(code) || [];
+    const caller = players.find((p) => p.session_token === sessionToken);
+    if (!caller) {
+      throw { status: 401, message: 'Invalid session token' };
+    }
+
+    if (expectedPhase && room.phase !== expectedPhase) {
+      return { phase: room.phase, already_advanced: true };
+    }
+
+    const stages = memoryStore.stages.get(code) || [];
+    const currentStage = stages.find((s) => s.stage_number === room.current_stage_number);
+    if (!currentStage) {
+      throw { status: 404, message: 'Current stage not found' };
+    }
+
+    if (room.phase === 'SUBMITTING') {
+      const stageMatchups = memoryStore.matchups.get(currentStage.id) || [];
+      const stageSubmissions = memoryStore.submissions.get(currentStage.id) || [];
+
+      // Ensure every matchup has submissions from both assigned players.
+      // Anyone who didn't submit receives a blank submission ("").
+      for (const m of stageMatchups) {
+        const sub1 = stageSubmissions.find(
+          (s) => s.matchup_id === m.id && s.player_id === m.player1_id
+        );
+        if (!sub1) {
+          stageSubmissions.push({
+            id: randomUUID(),
+            stage_id: currentStage.id,
+            matchup_id: m.id,
+            player_id: m.player1_id,
+            title: '',
+            created_at: new Date().toISOString(),
+          });
+        }
+
+        if (m.player1_id !== m.player2_id) {
+          const sub2 = stageSubmissions.find(
+            (s) => s.matchup_id === m.id && s.player_id === m.player2_id
+          );
+          if (!sub2) {
+            stageSubmissions.push({
+              id: randomUUID(),
+              stage_id: currentStage.id,
+              matchup_id: m.id,
+              player_id: m.player2_id,
+              title: '',
+              created_at: new Date().toISOString(),
+            });
+          }
+        } else {
+          // If 1-player testing mode
+          const subs = stageSubmissions.filter((s) => s.matchup_id === m.id);
+          if (subs.length < 2) {
+            stageSubmissions.push({
+              id: randomUUID(),
+              stage_id: currentStage.id,
+              matchup_id: m.id,
+              player_id: m.player1_id,
+              title: '',
+              created_at: new Date().toISOString(),
+            });
+          }
+        }
+      }
+
+      memoryStore.submissions.set(currentStage.id, stageSubmissions);
+
+      // Stop SUBMITTING phase and start VOTING phase!
+      room.phase = 'VOTING';
+      room.current_matchup_index = 0;
+      room.updated_at = new Date().toISOString();
+      currentStage.phase = 'VOTING';
+      currentStage.current_matchup_index = 0;
+
+      emitRoomEvent(code, {
+        type: 'room_phase_changed',
+        payload: { phase: 'VOTING', current_stage_number: room.current_stage_number },
+      });
+
+      return {
+        phase: 'VOTING' as GamePhase,
+        current_stage_number: room.current_stage_number,
+      };
+    }
+
+    if (room.phase === 'VOTING') {
+      const stageMatchups = memoryStore.matchups.get(currentStage.id) || [];
+      const activeMatchupIndex = room.current_matchup_index;
+      const activeMatchup = stageMatchups[activeMatchupIndex];
+
+      if (activeMatchup && !activeMatchup.is_revealed) {
+        if (matchupId && activeMatchup.id !== matchupId) {
+          return { phase: room.phase, already_advanced: true };
+        }
+
+        activeMatchup.is_revealed = true;
+        const stageSubmissions = memoryStore.submissions.get(currentStage.id) || [];
+        const stageVotes = memoryStore.votes.get(currentStage.id) || [];
+
+        const { result, playerScoreDeltas } = calculateMatchupResult(
+          activeMatchup,
+          stageSubmissions,
+          stageVotes,
+          players
+        );
+
+        players.forEach((p) => {
+          if (playerScoreDeltas[p.id]) {
+            p.score += playerScoreDeltas[p.id];
+          }
+        });
+
+        const existingScores = memoryStore.matchupScores.get(currentStage.id) || [];
+        const updatedScores = existingScores.filter((r) => r.matchup_id !== activeMatchup.id);
+        updatedScores.push(result);
+        memoryStore.matchupScores.set(currentStage.id, updatedScores);
+
+        emitRoomEvent(code, {
+          type: 'matchup_revealed',
+          payload: { matchup_id: activeMatchup.id, result },
+        });
+
+        return {
+          phase: 'VOTING' as GamePhase,
+          current_matchup_index: activeMatchupIndex,
+          total_matchups: stageMatchups.length,
+          is_revealed: true,
+          result,
+        };
+      }
+    }
+
+    return { phase: room.phase };
   }
 
   /**
@@ -1074,6 +1228,7 @@ export class GameService {
       stage_matchup_results: stageMatchupScores,
       stage_results: stageResults,
       final_leaderboard: finalLeaderboard,
+      phase_started_at: room.updated_at,
     };
   }
 
@@ -1210,6 +1365,40 @@ export class GameService {
     if (room.phase === 'LOBBY') {
       return await this.forceStartGame(code, password);
     } else if (room.phase === 'SUBMITTING') {
+      if (currentStage) {
+        const stageSubmissions = memoryStore.submissions.get(currentStage.id) || [];
+        for (const m of stageMatchups) {
+          const sub1 = stageSubmissions.find(
+            (s) => s.matchup_id === m.id && s.player_id === m.player1_id
+          );
+          if (!sub1) {
+            stageSubmissions.push({
+              id: randomUUID(),
+              stage_id: currentStage.id,
+              matchup_id: m.id,
+              player_id: m.player1_id,
+              title: '',
+              created_at: new Date().toISOString(),
+            });
+          }
+          if (m.player1_id !== m.player2_id) {
+            const sub2 = stageSubmissions.find(
+              (s) => s.matchup_id === m.id && s.player_id === m.player2_id
+            );
+            if (!sub2) {
+              stageSubmissions.push({
+                id: randomUUID(),
+                stage_id: currentStage.id,
+                matchup_id: m.id,
+                player_id: m.player2_id,
+                title: '',
+                created_at: new Date().toISOString(),
+              });
+            }
+          }
+        }
+        memoryStore.submissions.set(currentStage.id, stageSubmissions);
+      }
       room.phase = 'VOTING';
       room.current_matchup_index = 0;
       if (currentStage) {

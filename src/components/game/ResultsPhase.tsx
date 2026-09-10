@@ -128,7 +128,11 @@ export function ResultsPhase({
                     </span>
                     <div className="space-y-0.5">
                       <div className="font-comic font-bold text-white text-sm">
-                        &ldquo;{winner?.title || m.options[0]?.title}&rdquo;
+                        {(winner?.title || m.options[0]?.title)?.trim() ? (
+                          <>&ldquo;{winner?.title || m.options[0]?.title}&rdquo;</>
+                        ) : (
+                          <span className="italic text-slate-400 font-sans font-normal">(blank)</span>
+                        )}
                       </div>
                       <div className="text-slate-400">
                         Won by <strong className="text-slate-200">{winner?.author_nickname || 'Co-winner'}</strong>

@@ -225,7 +225,11 @@ export function VotingPhase({
 
                 <div className="space-y-1">
                   <p className="text-xl sm:text-2xl font-bold font-comic text-white leading-snug">
-                    &ldquo;{resultOptionA.title}&rdquo;
+                    {resultOptionA.title?.trim() ? (
+                      <>&ldquo;{resultOptionA.title}&rdquo;</>
+                    ) : (
+                      <span className="italic text-slate-400 font-sans font-normal">(blank)</span>
+                    )}
                   </p>
                   <p className="text-xs font-bold text-slate-300">
                     By <strong className="text-white">{resultOptionA.author_nickname}</strong>
@@ -300,7 +304,11 @@ export function VotingPhase({
               </div>
 
               <p className="text-xl sm:text-2xl font-bold font-comic text-white leading-relaxed my-2">
-                &ldquo;{optionA.title}&rdquo;
+                {optionA.title?.trim() ? (
+                  <>&ldquo;{optionA.title}&rdquo;</>
+                ) : (
+                  <span className="italic text-slate-400 font-sans font-normal">(blank)</span>
+                )}
               </p>
 
               {!has_voted && !is_author ? (
@@ -371,7 +379,11 @@ export function VotingPhase({
 
                 <div className="space-y-1">
                   <p className="text-xl sm:text-2xl font-bold font-comic text-white leading-snug">
-                    &ldquo;{resultOptionB.title}&rdquo;
+                    {resultOptionB.title?.trim() ? (
+                      <>&ldquo;{resultOptionB.title}&rdquo;</>
+                    ) : (
+                      <span className="italic text-slate-400 font-sans font-normal">(blank)</span>
+                    )}
                   </p>
                   <p className="text-xs font-bold text-slate-300">
                     By <strong className="text-white">{resultOptionB.author_nickname}</strong>
@@ -446,7 +458,11 @@ export function VotingPhase({
               </div>
 
               <p className="text-xl sm:text-2xl font-bold font-comic text-white leading-relaxed my-2">
-                &ldquo;{optionB.title}&rdquo;
+                {optionB.title?.trim() ? (
+                  <>&ldquo;{optionB.title}&rdquo;</>
+                ) : (
+                  <span className="italic text-slate-400 font-sans font-normal">(blank)</span>
+                )}
               </p>
 
               {!has_voted && !is_author ? (

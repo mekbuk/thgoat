@@ -212,6 +212,44 @@ export default function RoomPage({ params }: { params: Promise<{ code: string }>
     await refreshState();
   };
 
+  const handleTimeout = async () => {
+    if (!sessionToken || !state?.current_stage) return;
+    // Delay slightly to let active client drafts finish submitting
+    setTimeout(async () => {
+      try {
+        const res = await fetch(`/api/rooms/${code}/timeout`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'x-session-token': sessionToken,
+          },
+          body: JSON.stringify({
+            stage_id: state.current_stage?.stage_id,
+            phase: state.phase,
+            matchup_id: state.current_matchup?.matchup_id,
+          }),
+        });
+        const data = await res.json();
+        if (res.ok) {
+          if (data.phase === 'VOTING' && state.phase === 'SUBMITTING') {
+            await broadcastEvent({
+              type: 'room_phase_changed',
+              payload: { phase: 'VOTING', current_stage_number: state.current_stage_number },
+            });
+          } else if (data.is_revealed && data.result) {
+            await broadcastEvent({
+              type: 'matchup_revealed',
+              payload: { matchup_id: state.current_matchup?.matchup_id || '', result: data.result },
+            });
+          }
+          await refreshState();
+        }
+      } catch (err) {
+        console.error('Timeout action error:', err);
+      }
+    }, 750);
+  };
+
   const handleAdminActionComplete = async (newPhase: GamePhase) => {
     await broadcastEvent({
       type: 'room_phase_changed',
@@ -267,6 +305,8 @@ export default function RoomPage({ params }: { params: Promise<{ code: string }>
       me={state.me}
       isHost={isHost}
       currentMatchup={state.current_matchup}
+      phaseStartedAt={state.phase_started_at}
+      onTimeout={handleTimeout}
       onOpenAdmin={() => setIsAdminOpen(true)}
     >
       {state.phase === 'SUBMITTING' && state.current_stage && (

@@ -6,6 +6,18 @@ import { GamePhase, PlayerSummary, CurrentPlayer, CurrentMatchupInfo } from '@/t
 import { GameMascot, getMascotForPlayer } from './GameMascot';
 import { Check, X, Shield, Crown, Sparkles, Users } from 'lucide-react';
 
+interface GameTimerContextType {
+  timeLeft: number;
+  isTimeUp: boolean;
+}
+
+export const GameTimerContext = React.createContext<GameTimerContextType>({
+  timeLeft: 53,
+  isTimeUp: false,
+});
+
+export const useGameTimer = () => React.useContext(GameTimerContext);
+
 interface InGameScreenProps {
   roomCode: string;
   phase: GamePhase;
@@ -14,6 +26,8 @@ interface InGameScreenProps {
   me: CurrentPlayer | null;
   isHost: boolean;
   currentMatchup?: CurrentMatchupInfo | null;
+  phaseStartedAt?: string;
+  onTimeout?: () => void;
   onOpenAdmin?: () => void;
   children: React.ReactNode;
 }
@@ -26,13 +40,32 @@ export function InGameScreen({
   me,
   isHost,
   currentMatchup,
+  phaseStartedAt,
+  onTimeout,
   onOpenAdmin,
   children,
 }: InGameScreenProps) {
+  const ROUND_DURATION_SUBMITTING = 53;
+  const ROUND_DURATION_VOTING = 30;
+
+  const getTargetDuration = () => {
+    if (phase === 'SUBMITTING') return ROUND_DURATION_SUBMITTING;
+    if (phase === 'VOTING' && !currentMatchup?.is_revealed) return ROUND_DURATION_VOTING;
+    return 0;
+  };
+
+  const getInitialTimeLeft = () => {
+    const duration = getTargetDuration();
+    if (!phaseStartedAt || duration === 0) return duration;
+    const elapsed = Math.floor((Date.now() - new Date(phaseStartedAt).getTime()) / 1000);
+    return Math.max(0, duration - Math.max(0, elapsed));
+  };
+
   // Timer countdown state
-  const [timeLeft, setTimeLeft] = useState<number>(53);
+  const [timeLeft, setTimeLeft] = useState<number>(() => getInitialTimeLeft());
   const [isRoomInfoOpen, setIsRoomInfoOpen] = useState(false);
   const [mobileRosterOpen, setMobileRosterOpen] = useState(false);
+  const hasTimedOutRef = React.useRef(false);
 
   // Select round image based on current stage number (defaulting to round1 for 1, round2 for 2, round3 for 3)
   const roundImgSrc =
@@ -42,11 +75,12 @@ export function InGameScreen({
       ? '/round3.png'
       : '/round1.png';
 
-  // Reset or restart timer on matchup or phase change
+  // Sync / reset timer on matchup, phase, stage or phaseStartedAt change
   useEffect(() => {
-    // Start countdown at 53 seconds (matching the reference image 53)
-    setTimeLeft(53);
-  }, [currentMatchup?.matchup_id, phase, currentStageNumber]);
+    hasTimedOutRef.current = false;
+    const initial = getInitialTimeLeft();
+    setTimeLeft(initial);
+  }, [currentMatchup?.matchup_id, phase, currentStageNumber, phaseStartedAt]);
 
   // Tick down timer every second
   useEffect(() => {
@@ -61,34 +95,15 @@ export function InGameScreen({
     return () => clearInterval(timer);
   }, [currentMatchup?.is_revealed, phase]);
 
-
-  // Determine right script title
-  const getScriptTitle = () => {
-    switch (phase) {
-      case 'VOTING':
-        return 'Voting';
-      case 'SUBMITTING':
-        return 'Writing';
-      case 'RESULTS':
-        return 'Results';
-      case 'FINISHED':
-        return 'Champions';
-      default:
-        return 'Game';
+  // Fire onTimeout callback when timeLeft reaches 0
+  useEffect(() => {
+    if (timeLeft === 0 && !hasTimedOutRef.current) {
+      if (phase === 'SUBMITTING' || (phase === 'VOTING' && !currentMatchup?.is_revealed)) {
+        hasTimedOutRef.current = true;
+        onTimeout?.();
+      }
     }
-  };
-
-  // Compute vote/submission tally for the bottom-right counter
-  const getTallyText = () => {
-    if (phase === 'VOTING' && currentMatchup) {
-      return `${currentMatchup.total_voted} of ${currentMatchup.total_eligible_voters || players.length}`;
-    }
-    if (phase === 'SUBMITTING') {
-      const readyCount = players.filter((p) => p.has_submitted).length;
-      return `${readyCount} of ${players.length}`;
-    }
-    return `${players.length} players`;
-  };
+  }, [timeLeft, phase, currentMatchup?.is_revealed, onTimeout]);
 
   // Check if a player has completed their action in current phase
   const isPlayerActionDone = (player: PlayerSummary) => {
@@ -262,7 +277,6 @@ export function InGameScreen({
           <div className="absolute right-0 top-11 w-56 p-3 rounded-2xl bg-slate-950/95 border border-slate-800 shadow-2xl space-y-1.5 z-40 backdrop-blur-xl">
             <div className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1 flex items-center justify-between">
               <span>Room Players</span>
-              <span className="text-emerald-400 font-comic italic font-bold">{getScriptTitle()}</span>
             </div>
             {players.map((p, idx) => (
               <div
@@ -302,31 +316,18 @@ export function InGameScreen({
       </div>
 
       {/* ========================================================================= */}
-      {/* 3. TOP-RIGHT: SCRIPT PHASE TITLE ("Voting" / "Writing")                      */}
-      {/* ========================================================================= */}
-      <div className="hidden lg:flex flex-col items-end absolute top-5 right-6 z-30 pointer-events-auto select-none">
-        <span className="font-comic italic font-black text-3xl xl:text-4xl text-[#2ed573] -rotate-6 block drop-shadow-[0_4px_10px_rgba(0,0,0,0.9)] tracking-tight">
-          {getScriptTitle()}
-        </span>
-      </div>
-
-      {/* ========================================================================= */}
       {/* 4. CENTER STAGE: MAIN GAMEPLAY CONTENT                                     */}
       {/* ========================================================================= */}
       <main className="relative z-10 flex-1 flex flex-col items-center justify-center w-full px-2 sm:px-4 lg:pl-64 xl:pl-72 lg:pr-16 pt-20 sm:pt-24 pb-20 sm:pb-24 max-w-7xl mx-auto">
-        {children}
+        <GameTimerContext.Provider value={{ timeLeft, isTimeUp: timeLeft <= 0 }}>
+          {children}
+        </GameTimerContext.Provider>
       </main>
 
       {/* ========================================================================= */}
-      {/* 5. BOTTOM-RIGHT: ROOM CODE, BRAND & VOTE COUNTER                          */}
+      {/* 5. BOTTOM-RIGHT: ROOM CODE, BRAND                                         */}
       {/* ========================================================================= */}
       <footer className="absolute bottom-3 right-3 sm:bottom-5 sm:right-6 z-30 pointer-events-auto select-none flex flex-col items-end space-y-1 text-right">
-        {/* Audience / Voter count pill (like reference 12 ... 32) */}
-        <div className="flex items-center space-x-1 px-2.5 py-0.5 rounded-full bg-slate-950/80 border border-slate-800 text-[11px] font-mono text-slate-400">
-          <span className="text-amber-400 font-black">•••</span>
-          <span className="text-slate-300 font-bold">{getTallyText()}</span>
-        </div>
-
         {/* Website / Brand Text (JACKBOX.TV style) */}
         <div className="text-[11px] sm:text-xs font-black tracking-widest text-slate-300/90 font-mono uppercase drop-shadow-md">
           THROATGOAT.FUN
