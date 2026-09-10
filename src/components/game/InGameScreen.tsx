@@ -174,26 +174,13 @@ export function InGameScreen({
             </span>
           </div>
 
-          {/* Current user badge (if present) */}
-          {me && (
-            <div className="w-full mb-2">
-              <div className="flex items-center space-x-2 px-3 py-1.5 rounded-full bg-slate-900/95 border border-purple-500/50 shadow-lg text-xs font-bold text-slate-200">
-                <div className="w-6 h-6 rounded-full ring-2 ring-purple-400 overflow-hidden flex items-center justify-center bg-slate-800 shrink-0">
-                  <GameMascot type={getMascotForPlayer(me.id || me.nickname)} className="w-5 h-5" />
-                </div>
-                <span className="truncate max-w-[110px] font-comic font-bold text-white">
-                  {me.nickname} {isHost && '👑'}
-                </span>
-                <span className="text-[9px] uppercase font-bold text-purple-300 ml-auto">(YOU)</span>
-              </div>
-            </div>
-          )}
-
           {/* Vertical list of usernames from up to down */}
           <div className="flex flex-col space-y-2 w-full max-h-[calc(100vh-270px)] overflow-y-auto pr-1">
             {players.map((player, idx) => {
               const isDone = isPlayerActionDone(player);
-              const isMe = me?.id === player.id;
+              const isMe =
+                (me?.id && player.id && me.id === player.id) ||
+                (me?.nickname && player.nickname && me.nickname === player.nickname);
               const mascot = getMascotForPlayer(player.id || player.nickname);
 
               return (
@@ -210,8 +197,8 @@ export function InGameScreen({
                     <GameMascot type={mascot} className="w-6 h-6" />
                   </div>
 
-                  {/* Middle: Nickname & Host Indicator */}
-                  <div className="flex-1 truncate mr-2 flex flex-col justify-center">
+                  {/* Middle: Nickname & Host Indicator & (you) badge */}
+                  <div className="flex-1 min-w-0 mr-2 flex flex-col justify-center">
                     <div className="flex items-center space-x-1 truncate">
                       <span
                         className={`font-comic font-bold text-xs sm:text-sm tracking-wide truncate ${
@@ -220,7 +207,12 @@ export function InGameScreen({
                       >
                         {player.nickname}
                       </span>
-                      {player.is_host && <span title="Host">👑</span>}
+                      {player.is_host && <span title="Host" className="shrink-0">👑</span>}
+                      {isMe && (
+                        <span className="text-[10px] font-bold text-purple-300 shrink-0">
+                          (you)
+                        </span>
+                      )}
                     </div>
                   </div>
 
@@ -278,23 +270,33 @@ export function InGameScreen({
             <div className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1 flex items-center justify-between">
               <span>Room Players</span>
             </div>
-            {players.map((p, idx) => (
-              <div
-                key={p.id || idx}
-                className="flex items-center justify-between p-2 rounded-xl bg-slate-900/70 border border-slate-800 text-xs"
-              >
-                <div className="flex items-center space-x-2 truncate">
-                  <GameMascot type={getMascotForPlayer(p.id || p.nickname)} className="w-5 h-5" />
-                  <span className="truncate font-comic font-bold text-slate-200">{p.nickname}</span>
-                  {p.is_host && <span>👑</span>}
+            {players.map((p, idx) => {
+              const isMe =
+                (me?.id && p.id && me.id === p.id) ||
+                (me?.nickname && p.nickname && me.nickname === p.nickname);
+              return (
+                <div
+                  key={p.id || idx}
+                  className={`flex items-center justify-between p-2 rounded-xl border text-xs ${
+                    isMe
+                      ? 'bg-purple-950/70 border-purple-500/50'
+                      : 'bg-slate-900/70 border border-slate-800'
+                  }`}
+                >
+                  <div className="flex items-center space-x-2 truncate">
+                    <GameMascot type={getMascotForPlayer(p.id || p.nickname)} className="w-5 h-5" />
+                    <span className="truncate font-comic font-bold text-slate-200">{p.nickname}</span>
+                    {p.is_host && <span className="shrink-0">👑</span>}
+                    {isMe && <span className="text-[10px] font-bold text-purple-300 shrink-0">(you)</span>}
+                  </div>
+                  {isPlayerActionDone(p) ? (
+                    <Check className="w-3.5 h-3.5 text-emerald-400 stroke-[3]" />
+                  ) : (
+                    <span className="text-amber-400 text-xs font-black animate-pulse">•••</span>
+                  )}
                 </div>
-                {isPlayerActionDone(p) ? (
-                  <Check className="w-3.5 h-3.5 text-emerald-400 stroke-[3]" />
-                ) : (
-                  <span className="text-amber-400 text-xs font-black animate-pulse">•••</span>
-                )}
-              </div>
-            ))}
+              );
+            })}
           </div>
         )}
       </div>
@@ -318,7 +320,7 @@ export function InGameScreen({
       {/* ========================================================================= */}
       {/* 4. CENTER STAGE: MAIN GAMEPLAY CONTENT                                     */}
       {/* ========================================================================= */}
-      <main className="relative z-10 flex-1 flex flex-col items-center justify-center w-full px-2 sm:px-4 lg:pl-64 xl:pl-72 lg:pr-16 pt-20 sm:pt-24 pb-20 sm:pb-24 max-w-7xl mx-auto">
+      <main className="relative z-10 flex-1 flex flex-col items-center justify-center w-full px-4 sm:px-6 lg:px-8 pt-20 sm:pt-24 pb-20 sm:pb-24 max-w-7xl mx-auto">
         <GameTimerContext.Provider value={{ timeLeft, isTimeUp: timeLeft <= 0 }}>
           {children}
         </GameTimerContext.Provider>

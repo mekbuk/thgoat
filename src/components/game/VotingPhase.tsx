@@ -132,7 +132,7 @@ export function VotingPhase({
       : '';
 
   return (
-    <div className="flex flex-col items-center justify-center space-y-5 w-full max-w-6xl mx-auto p-2 sm:p-4 lg:p-6 animate-fade-in">
+    <div className="flex flex-col items-center justify-center space-y-5 w-full max-w-5xl xl:max-w-6xl mx-auto p-2 sm:p-4 lg:p-6 animate-fade-in">
       {/* Matchup Header */}
       <div className="text-center space-y-2 w-full max-w-2xl mx-auto">
         <div className="flex items-center justify-center space-x-2">
