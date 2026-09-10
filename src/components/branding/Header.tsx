@@ -3,9 +3,17 @@
 import React from 'react';
 import Link from 'next/link';
 import Image from 'next/image';
-import { Sparkles, Flame, Users } from 'lucide-react';
+import { usePathname } from 'next/navigation';
+import { Sparkles, Users } from 'lucide-react';
 
 export const Header: React.FC = () => {
+  const pathname = usePathname();
+
+  // Hide the branding header on room/lobby pages
+  if (pathname?.startsWith('/room')) {
+    return null;
+  }
+
   return (
     <header className="w-full border-b border-slate-800 bg-slate-950/80 backdrop-blur-md sticky top-0 z-40">
       <div className="max-w-6xl mx-auto px-4 h-16 flex items-center justify-between">

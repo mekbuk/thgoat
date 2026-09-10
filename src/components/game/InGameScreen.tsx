@@ -61,21 +61,6 @@ export function InGameScreen({
     return () => clearInterval(timer);
   }, [currentMatchup?.is_revealed, phase]);
 
-  // Determine top center squiggly banner text
-  const getBannerText = () => {
-    switch (phase) {
-      case 'VOTING':
-        return 'vote for one';
-      case 'SUBMITTING':
-        return 'write your funniest title';
-      case 'RESULTS':
-        return 'round standings';
-      case 'FINISHED':
-        return 'final champion';
-      default:
-        return 'throat goat';
-    }
-  };
 
   // Determine right script title
   const getScriptTitle = () => {
@@ -301,7 +286,7 @@ export function InGameScreen({
       </div>
 
       {/* ========================================================================= */}
-      {/* 2. TOP-CENTER: MENU BUTTON & SQUIGGLY PHASE BANNER (~ vote for one ~)     */}
+      {/* 2. TOP-CENTER: MENU / INFO BUTTON                                         */}
       {/* ========================================================================= */}
       <div className="absolute top-2.5 sm:top-4 left-1/2 -translate-x-1/2 z-30 flex flex-col items-center pointer-events-auto select-none">
         {/* Little circular menu / close / info button matching reference */}
@@ -310,41 +295,10 @@ export function InGameScreen({
           onClick={() => setIsRoomInfoOpen(true)}
           title="Room Details & Options"
           aria-label="Room details"
-          className="w-7 h-7 sm:w-8 sm:h-8 rounded-full bg-slate-900/80 border border-slate-700/80 hover:border-slate-500 text-slate-400 hover:text-white flex items-center justify-center transition-all hover:scale-110 shadow-lg mb-1 sm:mb-1.5"
+          className="w-7 h-7 sm:w-8 sm:h-8 rounded-full bg-slate-900/80 border border-slate-700/80 hover:border-slate-500 text-slate-400 hover:text-white flex items-center justify-center transition-all hover:scale-110 shadow-lg"
         >
           <X className="w-3.5 h-3.5 sm:w-4 sm:h-4 stroke-[2.5]" />
         </button>
-
-        {/* Squiggly Phase Header (~ vote for one ~) */}
-        <div className="flex items-center space-x-2 sm:space-x-3 px-3 py-1">
-          {/* Left squiggly wavy SVG */}
-          <svg
-            className="w-6 sm:w-9 h-3 sm:h-4 text-[#2ed573]"
-            viewBox="0 0 36 12"
-            fill="none"
-            stroke="currentColor"
-            strokeWidth="3.5"
-            strokeLinecap="round"
-          >
-            <path d="M 2,6 C 6,0 12,0 16,6 C 20,12 26,12 30,6 C 32,3 34,3 35,6" />
-          </svg>
-
-          <h1 className="text-base sm:text-xl md:text-2xl font-black font-comic tracking-wide text-[#2ed573] lowercase drop-shadow-[0_2px_8px_rgba(46,213,115,0.4)]">
-            {getBannerText()}
-          </h1>
-
-          {/* Right squiggly wavy SVG */}
-          <svg
-            className="w-6 sm:w-9 h-3 sm:h-4 text-[#2ed573]"
-            viewBox="0 0 36 12"
-            fill="none"
-            stroke="currentColor"
-            strokeWidth="3.5"
-            strokeLinecap="round"
-          >
-            <path d="M 2,6 C 6,0 12,0 16,6 C 20,12 26,12 30,6 C 32,3 34,3 35,6" />
-          </svg>
-        </div>
       </div>
 
       {/* ========================================================================= */}
