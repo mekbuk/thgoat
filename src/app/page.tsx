@@ -124,7 +124,7 @@ export default function LandingPage() {
             <span>MULTIPLAYER TATTOO TITLE CONTEST</span>
           </div>
 
-          <h1 className="text-4xl sm:text-6xl font-black text-transparent bg-clip-text bg-gradient-to-r from-rose-500 via-pink-400 to-amber-300 font-comic tracking-tight drop-shadow-lg">
+          <h1 className="text-4xl sm:text-6xl font-black text-transparent bg-clip-text bg-gradient-to-r from-rose-500 via-pink-400 to-amber-300 font-title tracking-wider drop-shadow-[0_4px_24px_rgba(244,63,94,0.35)]">
             THROAT GOAT
           </h1>
 

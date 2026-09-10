@@ -1,7 +1,15 @@
 import type { Metadata } from 'next';
+import { Russo_One } from 'next/font/google';
 import './globals.css';
 import { Header } from '@/components/branding/Header';
 import { Footer } from '@/components/branding/Footer';
+
+const russoOne = Russo_One({
+  weight: '400',
+  subsets: ['latin'],
+  variable: '--font-title',
+  display: 'swap',
+});
 
 export const metadata: Metadata = {
   title: 'Throat Goat | Multiplayer Tattoo Party Game',
@@ -19,7 +27,7 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <html lang="en" className="dark">
+    <html lang="en" className={`dark ${russoOne.variable}`}>
       <body className="flex flex-col min-h-screen">
         <Header />
         <main className="flex-1 flex flex-col">{children}</main>

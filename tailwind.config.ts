@@ -31,6 +31,7 @@ const config: Config = {
       },
       fontFamily: {
         comic: ['"Comic Sans MS"', '"Chalkboard SE"', '"Comic Neue"', 'sans-serif'],
+        title: ['var(--font-title)', 'Impact', '"Arial Black"', 'sans-serif'],
       },
     },
   },

@@ -68,7 +68,7 @@ export function FinalLeaderboard({
           <span>MATCH COMPLETE</span>
         </div>
 
-        <h1 className="text-4xl sm:text-5xl font-black text-transparent bg-clip-text bg-gradient-to-r from-amber-300 via-rose-400 to-pink-500 font-comic tracking-tight">
+        <h1 className="text-4xl sm:text-5xl font-black text-transparent bg-clip-text bg-gradient-to-r from-amber-300 via-rose-400 to-pink-500 font-title tracking-wider">
           THE ULTIMATE THROAT GOAT
         </h1>
 

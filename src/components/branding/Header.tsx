@@ -33,7 +33,7 @@ export const Header: React.FC = () => {
             />
           </div>
           <div>
-            <h1 className="text-xl font-black tracking-tight text-white flex items-center gap-1.5 font-comic">
+            <h1 className="text-xl font-black tracking-wider text-white flex items-center gap-1.5 font-title">
               THROAT GOAT <Sparkles className="w-4 h-4 text-rose-400 animate-spin" />
             </h1>
             <p className="text-[10px] text-amber-400 font-bold uppercase tracking-widest leading-none">
