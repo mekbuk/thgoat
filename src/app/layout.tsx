@@ -15,9 +15,9 @@ export const metadata: Metadata = {
   title: 'Throat Goat | Multiplayer Tattoo Party Game',
   description: 'A humorous multiplayer browser game where players create funny titles for questionable tattoos and vote for the best. Powered by Next.js & Supabase.',
   icons: {
-    icon: '/icon/image.png',
-    shortcut: '/icon/image.png',
-    apple: '/icon/image.png',
+    icon: '/icon.png',
+    shortcut: '/icon.png',
+    apple: '/icon.png',
   },
 };
 

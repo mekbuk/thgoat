@@ -46,7 +46,7 @@ export function GameHeader({
           <Link href="/" className="flex items-center space-x-2 group">
             <div className="w-7 h-7 rounded-lg overflow-hidden flex items-center justify-center bg-slate-800 border border-rose-500/30">
               <Image
-                src="/icon/image.png"
+                src="/icon.png"
                 alt="Throat Goat Logo"
                 width={28}
                 height={28}

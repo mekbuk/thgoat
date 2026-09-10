@@ -110,7 +110,7 @@ export default function LandingPage() {
         <div className="text-center space-y-4 my-6 animate-fade-in flex flex-col items-center">
           <div className="w-20 h-20 sm:w-24 sm:h-24 rounded-3xl bg-gradient-to-br from-rose-500 via-pink-500 to-amber-400 p-1 shadow-2xl shadow-rose-500/25 flex items-center justify-center overflow-hidden mb-1">
             <Image
-              src="/icon/image.png"
+              src="/icon.png"
               alt="Throat Goat"
               width={96}
               height={96}

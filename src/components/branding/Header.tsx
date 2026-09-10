@@ -24,7 +24,7 @@ export const Header: React.FC = () => {
         >
           <div className="w-10 h-10 rounded-2xl bg-gradient-to-br from-rose-500 via-pink-500 to-amber-400 p-0.5 shadow-lg shadow-rose-500/20 flex items-center justify-center overflow-hidden">
             <Image
-              src="/icon/image.png"
+              src="/icon.png"
               alt="Throat Goat Logo"
               width={40}
               height={40}
