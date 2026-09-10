@@ -131,20 +131,15 @@ export function InGameScreen({
       {/* ========================================================================= */}
       {/* Desktop Column: lg and up */}
       <aside className="hidden lg:flex flex-col items-start absolute top-4 left-4 xl:left-6 z-30 pointer-events-auto select-none w-56 xl:w-64 space-y-3">
-        {/* Top-Left: Round Display (Image Asset + Stylized Badge) */}
-        <div className="flex flex-col items-start space-y-1">
-          <div className="relative w-36 sm:w-44 md:w-48 h-12 sm:h-14 -rotate-2 transition-transform hover:scale-105 duration-300 drop-shadow-[0_8px_16px_rgba(0,0,0,0.7)]">
-            <Image
-              src={roundImgSrc}
-              alt={`Round #${currentStageNumber}`}
-              fill
-              className="object-contain"
-              priority
-            />
-          </div>
-          <div className="inline-flex items-center space-x-1.5 px-3 py-1 rounded-full bg-emerald-500/20 border border-emerald-400/50 text-emerald-300 font-comic font-black text-xs uppercase tracking-wider shadow-md">
-            <span>ROUND {currentStageNumber} OF 3</span>
-          </div>
+        {/* Top-Left: Round Display (Image Asset) */}
+        <div className="relative w-36 sm:w-44 md:w-48 h-12 sm:h-14 -rotate-2 transition-transform hover:scale-105 duration-300 drop-shadow-[0_8px_16px_rgba(0,0,0,0.7)]">
+          <Image
+            src={roundImgSrc}
+            alt={`Round #${currentStageNumber}`}
+            fill
+            className="object-contain"
+            priority
+          />
         </div>
 
         {/* Jackbox-style Dark Blob Timer Badge */}
