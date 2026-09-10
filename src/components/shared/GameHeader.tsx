@@ -28,11 +28,11 @@ export function GameHeader({
       case 'LOBBY':
         return <span className="rounded-full bg-amber-500/20 px-3 py-1 text-xs font-bold text-amber-300 border border-amber-500/30">LOBBY</span>;
       case 'SUBMITTING':
-        return <span className="rounded-full bg-blue-500/20 px-3 py-1 text-xs font-bold text-blue-300 border border-blue-500/30">STAGE {currentStageNumber} OF 2 • SUBMISSION</span>;
+        return <span className="rounded-full bg-blue-500/20 px-3 py-1 text-xs font-bold text-blue-300 border border-blue-500/30">SUBMISSION</span>;
       case 'VOTING':
-        return <span className="rounded-full bg-purple-500/20 px-3 py-1 text-xs font-bold text-purple-300 border border-purple-500/30">STAGE {currentStageNumber} OF 2 • VOTING</span>;
+        return <span className="rounded-full bg-purple-500/20 px-3 py-1 text-xs font-bold text-purple-300 border border-purple-500/30">VOTING</span>;
       case 'RESULTS':
-        return <span className="rounded-full bg-emerald-500/20 px-3 py-1 text-xs font-bold text-emerald-300 border border-emerald-500/30">STAGE {currentStageNumber} • RESULTS</span>;
+        return <span className="rounded-full bg-emerald-500/20 px-3 py-1 text-xs font-bold text-emerald-300 border border-emerald-500/30">RESULTS</span>;
       case 'FINISHED':
         return <span className="rounded-full bg-rose-500/20 px-3 py-1 text-xs font-bold text-rose-300 border border-rose-500/30">FINAL LEADERBOARD</span>;
     }

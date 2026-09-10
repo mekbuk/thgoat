@@ -55,7 +55,7 @@ export function ResultsPhase({
       <div className="text-center space-y-2">
         <div className="inline-flex items-center space-x-1.5 rounded-full bg-emerald-500/10 border border-emerald-500/30 px-3 py-1 text-xs font-bold text-emerald-400">
           <Trophy className="w-3.5 h-3.5" />
-          <span>STAGE {stageNumber} ROUND SUMMARY</span>
+          <span>ROUND SUMMARY</span>
         </div>
         <h2 className="text-3xl sm:text-4xl font-black text-white tracking-tight">
           Current Standings
@@ -63,7 +63,7 @@ export function ResultsPhase({
         <p className="text-xs text-slate-400">
           {isFinalStage
             ? 'All rounds completed! Ready to crown the ultimate champion.'
-            : 'Stage 1 matchups concluded. Here are the standings heading into Stage 2!'}
+            : 'Matchups concluded. Here are the standings heading into the next round!'}
         </p>
       </div>
 

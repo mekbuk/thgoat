@@ -85,18 +85,14 @@ export function SubmissionPhase({
     <div className="flex flex-col items-center justify-center space-y-6 w-full max-w-xl mx-auto p-4 sm:p-6 animate-fade-in">
       {/* Progress & Header */}
       <div className="text-center space-y-3 w-full">
-        <div className="flex items-center justify-center space-x-2">
-          <div className="inline-flex items-center space-x-1.5 rounded-full bg-blue-500/10 border border-blue-500/30 px-3 py-1 text-xs font-bold text-blue-400">
-            <Sparkles className="w-3.5 h-3.5" />
-            <span>STAGE {stage.stage_number} PROMPTS</span>
-          </div>
-
-          {!allCompleted && totalPrompts > 1 && (
+        {!allCompleted && totalPrompts > 1 && (
+          <div className="flex items-center justify-center space-x-2">
             <div className="inline-flex items-center space-x-1.5 rounded-full bg-purple-500/10 border border-purple-500/30 px-3 py-1 text-xs font-bold text-purple-300">
+              <Sparkles className="w-3.5 h-3.5" />
               <span>PROMPT {activeStep + 1} OF {totalPrompts}</span>
             </div>
-          )}
-        </div>
+          </div>
+        )}
 
         {/* Step Indicator Pills */}
         {!allCompleted && totalPrompts > 1 && (
