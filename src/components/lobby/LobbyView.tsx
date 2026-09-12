@@ -3,7 +3,8 @@
 import React, { useState } from 'react';
 import { Copy, Check, Play, Share2, Sparkles } from 'lucide-react';
 import { PlayerList } from './PlayerList';
-import { PlayerSummary } from '@/types/game';
+import { GameModeSelector } from './GameModeSelector';
+import { PlayerSummary, GameMode } from '@/types/game';
 import { MIN_PLAYERS, MAX_PLAYERS } from '@/lib/game/state-machine';
 
 interface LobbyViewProps {
@@ -11,6 +12,8 @@ interface LobbyViewProps {
   players: PlayerSummary[];
   isHost: boolean;
   myPlayerId?: string;
+  gameMode?: GameMode;
+  onSelectGameMode?: (mode: GameMode) => Promise<void>;
   onStartGame: () => Promise<void>;
 }
 
@@ -19,6 +22,8 @@ export function LobbyView({
   players,
   isHost,
   myPlayerId,
+  gameMode = 'CLASSIC',
+  onSelectGameMode,
   onStartGame,
 }: LobbyViewProps) {
   const [copied, setCopied] = useState(false);
@@ -51,6 +56,13 @@ export function LobbyView({
 
   return (
     <div className="flex flex-col items-center justify-center space-y-6 w-full max-w-2xl mx-auto p-4 sm:p-6 animate-fade-in">
+      {/* Game Mode Selection (On top of Waiting for Players) */}
+      <GameModeSelector
+        currentMode={gameMode}
+        isHost={isHost}
+        onSelectMode={onSelectGameMode || (() => {})}
+      />
+
       {/* Title & Badge */}
       <div className="text-center space-y-2">
         <div className="inline-flex items-center space-x-1.5 rounded-full bg-rose-500/10 border border-rose-500/30 px-3 py-1 text-xs font-bold text-rose-400">

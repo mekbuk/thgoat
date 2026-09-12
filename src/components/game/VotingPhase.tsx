@@ -15,6 +15,7 @@ import {
   Zap,
 } from 'lucide-react';
 import { ImageCard } from '@/components/shared/ImageCard';
+import { ThroatTattooOverlay } from './ThroatTattooOverlay';
 import { CurrentMatchupInfo, ActiveStageInfo } from '@/types/game';
 
 interface VotingPhaseProps {
@@ -131,6 +132,33 @@ export function VotingPhase({
       ? 'B'
       : '';
 
+  const isCelebrityMode = !!(currentMatchup.throat_box || optionA?.drawing_url || optionB?.drawing_url);
+  const [previewTab, setPreviewTab] = useState<'A' | 'B'>('A');
+
+  // Auto-switch throat preview tab when an option is selected or when matchup results reveal
+  useEffect(() => {
+    if (selectedId === optionA?.submission_id) {
+      setPreviewTab('A');
+    } else if (selectedId === optionB?.submission_id) {
+      setPreviewTab('B');
+    }
+  }, [selectedId, optionA?.submission_id, optionB?.submission_id]);
+
+  useEffect(() => {
+    if (is_revealed && result) {
+      if (resultOptionB?.is_winner && !resultOptionA?.is_winner) {
+        setPreviewTab('B');
+      } else {
+        setPreviewTab('A');
+      }
+    }
+  }, [is_revealed, result, resultOptionA?.is_winner, resultOptionB?.is_winner]);
+
+  const activeTattooUrl =
+    previewTab === 'A'
+      ? (resultOptionA?.drawing_url || optionA?.drawing_url)
+      : (resultOptionB?.drawing_url || optionB?.drawing_url);
+
   return (
     <div className="flex flex-col items-center justify-center space-y-5 w-full max-w-5xl xl:max-w-6xl mx-auto p-2 sm:p-4 lg:p-6 animate-fade-in">
       {/* Matchup Header */}
@@ -153,17 +181,17 @@ export function VotingPhase({
 
         <h2 className="text-2xl sm:text-3xl font-black text-white tracking-tight">
           {is_revealed
-            ? 'Matchup Showdown Results!'
+            ? (isCelebrityMode ? 'Celebrity Throat Battle Results!' : 'Matchup Showdown Results!')
             : is_author
-            ? 'Your Title Is in This Battle!'
-            : 'Vote for the Funniest Title!'}
+            ? (isCelebrityMode ? 'Your Throat Tattoo Is in This Battle!' : 'Your Title Is in This Battle!')
+            : (isCelebrityMode ? 'Vote for the Best Throat Tattoo!' : 'Vote for the Funniest Title!')}
         </h2>
         <p className="text-xs text-slate-400">
           {is_revealed
-            ? 'Check out the vote split and bonus points awarded for this tattoo.'
+            ? (isCelebrityMode ? 'Check out which custom throat tattoo won the celebrity matchup!' : 'Check out the vote split and bonus points awarded for this tattoo.')
             : is_author
-            ? 'Two players titled this tattoo. The room is voting on the best one!'
-            : 'Pick the title that makes you laugh the most.'}
+            ? (isCelebrityMode ? 'You inked this celebrity! Sit back while the room votes on who gave them the better throat tattoo.' : 'Two players titled this tattoo. The room is voting on the best one!')
+            : (isCelebrityMode ? 'Pick the throat tattoo design that looks funniest on this celebrity.' : 'Pick the title that makes you laugh the most.')}
         </p>
 
         {/* Special Sweep / Tie Banner */}
@@ -235,6 +263,16 @@ export function VotingPhase({
                     By <strong className="text-white">{resultOptionA.author_nickname}</strong>
                   </p>
                 </div>
+
+                {(resultOptionA.drawing_url || optionA?.drawing_url) && (
+                  <div className="w-full max-h-28 flex items-center justify-center bg-slate-950/70 rounded-2xl p-2 border border-slate-800 my-2">
+                    <img
+                      src={resultOptionA.drawing_url || optionA?.drawing_url}
+                      alt="Tattoo A"
+                      className="max-h-24 object-contain filter drop-shadow-md"
+                    />
+                  </div>
+                )}
 
                 <div className="pt-2 border-t border-slate-800/80 flex items-center justify-between">
                   <span className="text-xs font-semibold text-slate-400">
@@ -311,30 +349,80 @@ export function VotingPhase({
                 )}
               </p>
 
+              {optionA.drawing_url && (
+                <div className="w-full max-h-28 flex items-center justify-center bg-slate-950/70 rounded-2xl p-2 border border-slate-800 my-2">
+                  <img
+                    src={optionA.drawing_url}
+                    alt="Tattoo A"
+                    className="max-h-24 object-contain filter drop-shadow-md"
+                  />
+                </div>
+              )}
+
               {!has_voted && !is_author ? (
                 <div className="pt-2 text-[11px] font-semibold text-rose-300/80 text-right">
                   {selectedId === optionA.submission_id ? '✓ Selected' : 'Click to select'}
                 </div>
               ) : is_author ? (
                 <div className="pt-2 text-[11px] font-semibold text-slate-400 text-right">
-                  {optionA.is_mine ? 'Your title in this battle' : 'Opponent’s title'}
+                  {optionA.is_mine
+                    ? (isCelebrityMode ? 'Your throat tattoo in this battle' : 'Your title in this battle')
+                    : (isCelebrityMode ? 'Opponent’s throat tattoo' : 'Opponent’s title')}
                 </div>
               ) : null}
             </div>
           ) : null}
         </div>
 
-        {/* ================= CENTER: TATTOO ARTWORK IMAGE ================= */}
+        {/* ================= CENTER: TATTOO ARTWORK / CELEBRITY OVERLAY ================= */}
         <div className="order-1 md:order-2 md:col-span-4 flex flex-col items-center justify-center">
           <div className="relative group w-full max-w-xs sm:max-w-sm">
             {/* Center spotlight glow backdrop */}
             <div className="absolute -inset-1 bg-gradient-to-r from-rose-500/30 via-purple-500/30 to-indigo-500/30 rounded-3xl blur-xl opacity-75 group-hover:opacity-100 transition duration-1000 group-hover:duration-200 animate-pulse" />
 
-            <ImageCard
-              imageUrl={picture_url}
-              description={picture_description}
-              className="relative w-full rounded-3xl shadow-2xl border-2 border-slate-700/80 bg-slate-950"
-            />
+            {isCelebrityMode ? (
+              <div className="relative flex flex-col items-center space-y-3 w-full">
+                <ThroatTattooOverlay
+                  celebrityImageUrl={picture_url}
+                  celebrityName={currentMatchup.celebrity_name}
+                  tattooImageUrl={activeTattooUrl}
+                  throatBox={currentMatchup.throat_box}
+                  className="relative w-full rounded-3xl shadow-2xl border-2 border-slate-700/80 bg-slate-950"
+                />
+
+                {/* Switcher to compare Tattoo A vs Tattoo B stretched on celebrity neck */}
+                <div className="inline-flex items-center bg-slate-900/90 border border-slate-800 rounded-full p-1 shadow-xl space-x-1">
+                  <button
+                    type="button"
+                    onClick={() => setPreviewTab('A')}
+                    className={`px-3 py-1 rounded-full text-xs font-black transition-all ${
+                      previewTab === 'A'
+                        ? 'bg-rose-500 text-white shadow-md shadow-rose-500/30 scale-105'
+                        : 'text-slate-400 hover:text-white'
+                    }`}
+                  >
+                    Preview Tattoo A
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setPreviewTab('B')}
+                    className={`px-3 py-1 rounded-full text-xs font-black transition-all ${
+                      previewTab === 'B'
+                        ? 'bg-indigo-500 text-white shadow-md shadow-indigo-500/30 scale-105'
+                        : 'text-slate-400 hover:text-white'
+                    }`}
+                  >
+                    Preview Tattoo B
+                  </button>
+                </div>
+              </div>
+            ) : (
+              <ImageCard
+                imageUrl={picture_url}
+                description={picture_description}
+                className="relative w-full rounded-3xl shadow-2xl border-2 border-slate-700/80 bg-slate-950"
+              />
+            )}
           </div>
         </div>
 
@@ -389,6 +477,16 @@ export function VotingPhase({
                     By <strong className="text-white">{resultOptionB.author_nickname}</strong>
                   </p>
                 </div>
+
+                {(resultOptionB.drawing_url || optionB?.drawing_url) && (
+                  <div className="w-full max-h-28 flex items-center justify-center bg-slate-950/70 rounded-2xl p-2 border border-slate-800 my-2">
+                    <img
+                      src={resultOptionB.drawing_url || optionB?.drawing_url}
+                      alt="Tattoo B"
+                      className="max-h-24 object-contain filter drop-shadow-md"
+                    />
+                  </div>
+                )}
 
                 <div className="pt-2 border-t border-slate-800/80 flex items-center justify-between">
                   <span className="text-xs font-semibold text-slate-400">
@@ -465,13 +563,25 @@ export function VotingPhase({
                 )}
               </p>
 
+              {optionB.drawing_url && (
+                <div className="w-full max-h-28 flex items-center justify-center bg-slate-950/70 rounded-2xl p-2 border border-slate-800 my-2">
+                  <img
+                    src={optionB.drawing_url}
+                    alt="Tattoo B"
+                    className="max-h-24 object-contain filter drop-shadow-md"
+                  />
+                </div>
+              )}
+
               {!has_voted && !is_author ? (
                 <div className="pt-2 text-[11px] font-semibold text-indigo-300/80 text-right">
                   {selectedId === optionB.submission_id ? '✓ Selected' : 'Click to select'}
                 </div>
               ) : is_author ? (
                 <div className="pt-2 text-[11px] font-semibold text-slate-400 text-right">
-                  {optionB.is_mine ? 'Your title in this battle' : 'Opponent’s title'}
+                  {optionB.is_mine
+                    ? (isCelebrityMode ? 'Your throat tattoo in this battle' : 'Your title in this battle')
+                    : (isCelebrityMode ? 'Opponent’s throat tattoo' : 'Opponent’s title')}
                 </div>
               ) : null}
             </div>

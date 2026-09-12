@@ -6,6 +6,7 @@ import { useRoomSession } from '@/lib/hooks/useRoomSession';
 import { GameHeader } from '@/components/shared/GameHeader';
 import { LobbyView } from '@/components/lobby/LobbyView';
 import { SubmissionPhase } from '@/components/game/SubmissionPhase';
+import { CelebrityDrawingPhase } from '@/components/game/CelebrityDrawingPhase';
 import { VotingPhase } from '@/components/game/VotingPhase';
 import { ResultsPhase } from '@/components/game/ResultsPhase';
 import { FinalLeaderboard } from '@/components/leaderboard/FinalLeaderboard';
@@ -13,7 +14,7 @@ import { LoadingSpinner } from '@/components/shared/LoadingSpinner';
 import { ToastError } from '@/components/shared/ToastError';
 import { AdminModal } from '@/components/admin/AdminModal';
 import { InGameScreen } from '@/components/game/InGameScreen';
-import { GamePhase } from '@/types/game';
+import { GameMode, GamePhase } from '@/types/game';
 
 export default function RoomPage({ params }: { params: Promise<{ code: string }> }) {
   const { code } = use(params);
@@ -88,6 +89,26 @@ export default function RoomPage({ params }: { params: Promise<{ code: string }>
     await refreshState();
   };
 
+  const handleSelectGameMode = async (mode: GameMode) => {
+    if (!sessionToken) return;
+    const res = await fetch(`/api/rooms/${code}/mode`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'x-session-token': sessionToken,
+      },
+      body: JSON.stringify({ game_mode: mode }),
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || 'Failed to update game mode');
+
+    await broadcastEvent({
+      type: 'room_mode_changed',
+      payload: { game_mode: mode },
+    });
+    await refreshState();
+  };
+
   const handleSubmitTitle = async (matchupId: string, title: string) => {
     if (!sessionToken || !state.current_stage) return;
     const res = await fetch(`/api/rooms/${code}/submit`, {
@@ -104,6 +125,42 @@ export default function RoomPage({ params }: { params: Promise<{ code: string }>
     });
     const data = await res.json();
     if (!res.ok) throw new Error(data.error || 'Failed to submit title');
+
+    if (data.phase === 'VOTING') {
+      await broadcastEvent({
+        type: 'room_phase_changed',
+        payload: { phase: 'VOTING', current_stage_number: state.current_stage_number },
+      });
+    } else {
+      await broadcastEvent({
+        type: 'submission_received',
+        payload: {
+          player_id: state.me?.id || '',
+          total_submitted: data.total_submitted,
+          total_required: data.total_required,
+        },
+      });
+    }
+    await refreshState();
+  };
+
+  const handleSubmitDrawing = async (matchupId: string, title: string, drawingUrl: string) => {
+    if (!sessionToken || !state.current_stage) return;
+    const res = await fetch(`/api/rooms/${code}/submit`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'x-session-token': sessionToken,
+      },
+      body: JSON.stringify({
+        stage_id: state.current_stage.stage_id,
+        matchup_id: matchupId,
+        title,
+        drawing_url: drawingUrl,
+      }),
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || 'Failed to submit tattoo drawing');
 
     if (data.phase === 'VOTING') {
       await broadcastEvent({
@@ -279,6 +336,8 @@ export default function RoomPage({ params }: { params: Promise<{ code: string }>
             players={state.players}
             isHost={isHost}
             myPlayerId={state.me?.id}
+            gameMode={state.game_mode}
+            onSelectGameMode={handleSelectGameMode}
             onStartGame={handleStartGame}
           />
         </main>
@@ -310,14 +369,25 @@ export default function RoomPage({ params }: { params: Promise<{ code: string }>
       onOpenAdmin={() => setIsAdminOpen(true)}
     >
       {state.phase === 'SUBMITTING' && state.current_stage && (
-        <SubmissionPhase
-          stage={state.current_stage}
-          prompts={state.my_prompts}
-          hasSubmitted={state.me?.has_submitted || false}
-          onSubmitTitle={handleSubmitTitle}
-          totalSubmitted={state.players.reduce((acc, p) => acc + (p.is_connected ? 1 : 0), 0)}
-          totalRequired={state.players.filter((p) => p.is_connected).length}
-        />
+        state.game_mode === 'CELEBRITY' ? (
+          <CelebrityDrawingPhase
+            stage={state.current_stage}
+            prompts={state.my_prompts}
+            hasSubmitted={state.me?.has_submitted || false}
+            onSubmitDrawing={handleSubmitDrawing}
+            totalSubmitted={state.players.reduce((acc, p) => acc + (p.has_submitted ? 1 : 0), 0)}
+            totalRequired={state.players.filter((p) => p.is_connected).length}
+          />
+        ) : (
+          <SubmissionPhase
+            stage={state.current_stage}
+            prompts={state.my_prompts}
+            hasSubmitted={state.me?.has_submitted || false}
+            onSubmitTitle={handleSubmitTitle}
+            totalSubmitted={state.players.reduce((acc, p) => acc + (p.is_connected ? 1 : 0), 0)}
+            totalRequired={state.players.filter((p) => p.is_connected).length}
+          />
+        )
       )}
 
       {state.phase === 'VOTING' && (

@@ -27,7 +27,10 @@ export const submitTitleSchema = z.object({
   title: z
     .string()
     .trim()
-    .max(100, 'Title cannot exceed 100 characters'),
+    .max(100, 'Title cannot exceed 100 characters')
+    .optional()
+    .default(''),
+  drawing_url: z.string().optional(),
 });
 
 export const submitVoteSchema = z.object({

@@ -44,6 +44,31 @@ export async function exportStageToImage(
 }
 
 /**
+ * Exports a Konva Stage with transparent background for skin overlays
+ */
+export async function exportStageTransparent(
+  stage: Konva.Stage,
+  quality: number = 0.95
+): Promise<string> {
+  const bgLayer = stage.findOne('#background-layer');
+  if (bgLayer) {
+    bgLayer.visible(false);
+  }
+
+  const dataUrl = stage.toDataURL({
+    mimeType: 'image/png',
+    quality,
+    pixelRatio: 1.5,
+  });
+
+  if (bgLayer) {
+    bgLayer.visible(true);
+  }
+
+  return dataUrl;
+}
+
+/**
  * Retrieves or generates a persistent anonymous guest ID in localStorage
  */
 export function getOrCreateGuestId(): string {

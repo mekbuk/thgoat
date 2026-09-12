@@ -23,10 +23,15 @@ export async function GET(
     const safeFilename = path.basename(decodedFilename);
 
     const photosDir = path.join(process.cwd(), 'photos');
-    const filePath = path.join(photosDir, safeFilename);
+    let filePath = path.join(photosDir, safeFilename);
 
     if (!fs.existsSync(filePath)) {
-      return NextResponse.json({ error: 'Photo not found' }, { status: 404 });
+      const celebFilePath = path.join(photosDir, 'celebrities', safeFilename);
+      if (fs.existsSync(celebFilePath)) {
+        filePath = celebFilePath;
+      } else {
+        return NextResponse.json({ error: 'Photo not found' }, { status: 404 });
+      }
     }
 
     const stat = fs.statSync(filePath);

@@ -1,6 +1,16 @@
+export type GameMode = 'CLASSIC' | 'CELEBRITY';
 export type GamePhase = 'LOBBY' | 'SUBMITTING' | 'VOTING' | 'RESULTS' | 'FINISHED';
 export type StagePhase = 'SUBMITTING' | 'VOTING' | 'RESULTS';
 export type GameStatus = 'IN_PROGRESS' | 'COMPLETED';
+
+export interface ThroatBox {
+  top: number; // % from top (0-100)
+  left: number; // % from left (0-100)
+  width: number; // % width (0-100)
+  height: number; // % height (0-100)
+  rotation?: number; // degrees rotation (-45 to 45)
+  curvature?: number; // curvature intensity
+}
 
 export interface Picture {
   id: string;
@@ -8,6 +18,8 @@ export interface Picture {
   description: string | null;
   is_active: boolean;
   created_at: string;
+  celebrity_name?: string;
+  throat_box?: ThroatBox;
 }
 
 export interface Room {
@@ -15,6 +27,7 @@ export interface Room {
   room_code: string;
   host_player_id: string | null;
   phase: GamePhase;
+  game_mode?: GameMode;
   current_stage_number: number;
   current_matchup_index: number;
   created_at: string;
@@ -71,6 +84,7 @@ export interface Submission {
   matchup_id: string;
   player_id: string;
   title: string;
+  drawing_url?: string;
   created_at: string;
 }
 
@@ -123,6 +137,8 @@ export interface ActiveStageInfo {
   picture_url: string;
   picture_description: string | null;
   task_prompt: string;
+  celebrity_name?: string;
+  throat_box?: ThroatBox;
 }
 
 export interface PlayerPromptInfo {
@@ -132,19 +148,24 @@ export interface PlayerPromptInfo {
   picture_url: string;
   picture_description: string | null;
   task_prompt: string;
+  celebrity_name?: string;
+  throat_box?: ThroatBox;
   has_submitted: boolean;
   submitted_title?: string;
+  submitted_drawing_url?: string;
 }
 
 export interface VotingOption {
   submission_id: string;
   title: string;
+  drawing_url?: string;
   is_mine?: boolean;
 }
 
 export interface MatchupResultOption {
   submission_id: string;
   title: string;
+  drawing_url?: string;
   author_id: string;
   author_nickname: string;
   votes_received: number;
@@ -157,6 +178,8 @@ export interface MatchupResult {
   order_index: number;
   picture_url: string;
   picture_description: string | null;
+  celebrity_name?: string;
+  throat_box?: ThroatBox;
   options: MatchupResultOption[];
   is_tie: boolean;
   is_sweep: boolean;
@@ -169,6 +192,8 @@ export interface CurrentMatchupInfo {
   total_matchups: number;
   picture_url: string;
   picture_description: string | null;
+  celebrity_name?: string;
+  throat_box?: ThroatBox;
   task_prompt: string;
   is_author: boolean;
   is_revealed: boolean;
@@ -183,6 +208,7 @@ export interface CurrentMatchupInfo {
 export interface StageResultItem {
   submission_id: string;
   title: string;
+  drawing_url?: string;
   author_nickname: string;
   votes_received: number;
   is_winner: boolean;
@@ -201,6 +227,7 @@ export interface RoomState {
   room_id: string;
   room_code: string;
   phase: GamePhase;
+  game_mode: GameMode;
   current_stage_number: number;
   current_matchup_index: number;
   total_matchups: number;
@@ -219,6 +246,7 @@ export interface RoomState {
 
 export type RealtimeEventPayload =
   | { type: 'room_phase_changed'; payload: { phase: GamePhase; current_stage_number: number; current_matchup_index?: number } }
+  | { type: 'room_mode_changed'; payload: { game_mode: GameMode } }
   | { type: 'player_joined'; payload: PlayerSummary }
   | { type: 'player_left'; payload: { player_id: string; new_host_id: string | null } }
   | { type: 'submission_received'; payload: { player_id: string; total_submitted: number; total_required: number } }

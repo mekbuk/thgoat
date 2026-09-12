@@ -4,9 +4,11 @@ import { generateRoomCode } from '@/lib/game/room-code';
 import { MIN_PLAYERS, MAX_PLAYERS, validatePhaseTransition, TOTAL_STAGES } from '@/lib/game/state-machine';
 import { calculateMatchupResult, calculateStageResults, computeLeaderboard, SubmissionWithAuthor } from '@/lib/game/scoring';
 import { CURATED_PICTURES, selectPicturesForStage } from '@/lib/game/pictures';
+import { selectCelebritiesForStage } from '@/lib/game/celebrities';
 import { generateStageMatchups } from '@/lib/game/pairing';
 import { emitRoomEvent } from '@/lib/game/events';
 import {
+  GameMode,
   GamePhase,
   RoomState,
   Player,
@@ -95,6 +97,7 @@ export class GameService {
       room_code: roomCode,
       host_player_id: playerId,
       phase: 'LOBBY',
+      game_mode: 'CLASSIC',
       current_stage_number: 1,
       current_matchup_index: 0,
       created_at: new Date().toISOString(),
@@ -150,6 +153,38 @@ export class GameService {
       session_token: sessionToken,
       phase: newRoom.phase,
     };
+  }
+
+  /**
+   * Updates the game mode of a room (Host only, while in LOBBY).
+   */
+  static async setGameMode(roomCode: string, sessionToken: string, gameMode: GameMode) {
+    const code = roomCode.toUpperCase();
+    const room = memoryStore.rooms.get(code);
+    if (!room) {
+      throw { status: 404, message: 'Room not found' };
+    }
+
+    if (room.phase !== 'LOBBY') {
+      throw { status: 400, message: 'Game mode can only be changed while in the lobby' };
+    }
+
+    const players = memoryStore.players.get(code) || [];
+    const caller = players.find((p) => p.session_token === sessionToken);
+    if (!caller || !caller.is_host) {
+      throw { status: 403, message: 'Only the room host can change the game mode' };
+    }
+
+    room.game_mode = gameMode;
+    room.updated_at = new Date().toISOString();
+    memoryStore.rooms.set(code, room);
+
+    emitRoomEvent(code, {
+      type: 'room_mode_changed',
+      payload: { game_mode: gameMode },
+    });
+
+    return { success: true, game_mode: gameMode };
   }
 
   /**
@@ -320,7 +355,9 @@ export class GameService {
     }
 
     const stageId = randomUUID();
-    const selectedPics = selectPicturesForStage(1, activePlayers.length);
+    const selectedPics = room.game_mode === 'CELEBRITY'
+      ? selectCelebritiesForStage(1, activePlayers.length)
+      : selectPicturesForStage(1, activePlayers.length);
     const stageMatchups = generateStageMatchups(stageId, activePlayers, selectedPics);
 
     const stage1: Stage = {
@@ -370,7 +407,8 @@ export class GameService {
     sessionToken: string,
     stageId: string,
     title: string,
-    matchupId?: string
+    matchupId?: string,
+    drawingUrl?: string
   ) {
     const code = roomCode.toUpperCase();
     const room = memoryStore.rooms.get(code);
@@ -430,7 +468,8 @@ export class GameService {
       stage_id: stageId,
       matchup_id: targetMatchup.id,
       player_id: caller.id,
-      title: title ? title.trim() : '',
+      title: title ? title.trim() : (drawingUrl ? 'Custom Tattoo' : ''),
+      drawing_url: drawingUrl,
       created_at: new Date().toISOString(),
     };
 
@@ -914,7 +953,9 @@ export class GameService {
       const stageId = randomUUID();
 
       const activePlayers = players.filter((p) => p.is_connected);
-      const selectedPics = selectPicturesForStage(nextStageNumber, activePlayers.length);
+      const selectedPics = room.game_mode === 'CELEBRITY'
+        ? selectCelebritiesForStage(nextStageNumber, activePlayers.length)
+        : selectPicturesForStage(nextStageNumber, activePlayers.length);
       const stageMatchups = generateStageMatchups(stageId, activePlayers, selectedPics);
 
       const stage2: Stage = {
@@ -1084,6 +1125,8 @@ export class GameService {
       (m) => m.player1_id === me.id || m.player2_id === me.id
     );
 
+    const isCelebrityMode = room.game_mode === 'CELEBRITY';
+
     const myPrompts: PlayerPromptInfo[] = myAssignedMatchups.map((m, index) => {
       const sub = stageSubmissions.find((s) => s.matchup_id === m.id && s.player_id === me.id);
       return {
@@ -1092,9 +1135,14 @@ export class GameService {
         picture_id: m.picture.id,
         picture_url: m.picture.image_url,
         picture_description: m.picture.description,
-        task_prompt: 'Give this tattoo your funniest title.',
+        celebrity_name: m.picture.celebrity_name,
+        throat_box: m.picture.throat_box,
+        task_prompt: isCelebrityMode
+          ? `Draw a throat tattoo for ${m.picture.celebrity_name || 'this celebrity'}!`
+          : 'Give this tattoo your funniest title.',
         has_submitted: !!sub,
         submitted_title: sub?.title,
+        submitted_drawing_url: sub?.drawing_url,
       };
     });
 
@@ -1121,10 +1169,11 @@ export class GameService {
           (p) => p.id !== activeMatchup!.player1_id && p.id !== activeMatchup!.player2_id
         );
 
-        // Provide voting options to all players including authors so titles are visible to everyone
+        // Provide voting options to all players including authors so titles and drawings are visible to everyone
         votingOptions = matchupSubs.map((s) => ({
           submission_id: s.id,
           title: s.title,
+          drawing_url: s.drawing_url,
           is_mine: s.player_id === me.id,
         }));
 
@@ -1137,7 +1186,11 @@ export class GameService {
           total_matchups: stageMatchups.length,
           picture_url: activeMatchup.picture.image_url,
           picture_description: activeMatchup.picture.description,
-          task_prompt: 'Give this tattoo your funniest title.',
+          celebrity_name: activeMatchup.picture.celebrity_name,
+          throat_box: activeMatchup.picture.throat_box,
+          task_prompt: isCelebrityMode
+            ? `Vote on the best throat tattoo for ${activeMatchup.picture.celebrity_name || 'this celebrity'}!`
+            : 'Give this tattoo your funniest title.',
           is_author: isAuthor,
           is_revealed: activeMatchup.is_revealed,
           voting_options: votingOptions,
@@ -1172,6 +1225,7 @@ export class GameService {
       room_id: room.id,
       room_code: room.room_code,
       phase: room.phase,
+      game_mode: room.game_mode || 'CLASSIC',
       current_stage_number: room.current_stage_number,
       current_matchup_index: room.current_matchup_index,
       total_matchups: stageMatchups.length,
@@ -1220,7 +1274,11 @@ export class GameService {
             stage_number: currentStage.stage_number,
             picture_url: currentMatchupInfo?.picture_url || myPrompts[0]?.picture_url || CURATED_PICTURES[0].image_url,
             picture_description: currentMatchupInfo?.picture_description || myPrompts[0]?.picture_description || null,
-            task_prompt: 'Give this tattoo your funniest title.',
+            celebrity_name: currentMatchupInfo?.celebrity_name || myPrompts[0]?.celebrity_name,
+            throat_box: currentMatchupInfo?.throat_box || myPrompts[0]?.throat_box,
+            task_prompt: isCelebrityMode
+              ? `Draw a throat tattoo for ${currentMatchupInfo?.celebrity_name || myPrompts[0]?.celebrity_name || 'this celebrity'}!`
+              : 'Give this tattoo your funniest title.',
           }
         : null,
       current_matchup: currentMatchupInfo,
@@ -1261,7 +1319,9 @@ export class GameService {
       },
     ];
 
-    const selectedPics = selectPicturesForStage(1, Math.max(activePlayers.length, 2));
+    const selectedPics = room.game_mode === 'CELEBRITY'
+      ? selectCelebritiesForStage(1, Math.max(activePlayers.length, 2))
+      : selectPicturesForStage(1, Math.max(activePlayers.length, 2));
     const stageMatchups = generateStageMatchups(stageId, activePlayers, selectedPics);
 
     const stage1: Stage = {

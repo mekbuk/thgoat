@@ -76,6 +76,7 @@ export function calculateMatchupResult(
     options.push({
       submission_id: sub.id,
       title: sub.title,
+      drawing_url: sub.drawing_url,
       author_id: sub.player_id,
       author_nickname: author ? author.nickname : 'Unknown Player',
       votes_received: votesReceived,
@@ -142,6 +143,7 @@ export function calculateStageResults(
     results.push({
       submission_id: sub.id,
       title: sub.title,
+      drawing_url: sub.drawing_url,
       author_nickname: sub.author_nickname,
       votes_received: count,
       is_winner: isWinner,

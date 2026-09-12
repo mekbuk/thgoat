@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { submitTitleSchema } from '@/lib/validators/game-schemas';
 import { GameService } from '@/lib/services/game-service';
+import { GameMode } from '@/types/game';
 
 export async function POST(
   req: NextRequest,
@@ -15,28 +15,17 @@ export async function POST(
     }
 
     const body = await req.json();
-    const parsed = submitTitleSchema.safeParse(body);
+    const gameMode = body?.game_mode as GameMode;
 
-    if (!parsed.success) {
-      return NextResponse.json(
-        { error: 'Invalid submission', details: parsed.error.format() },
-        { status: 400 }
-      );
+    if (!gameMode || (gameMode !== 'CLASSIC' && gameMode !== 'CELEBRITY')) {
+      return NextResponse.json({ error: 'Invalid game mode' }, { status: 400 });
     }
 
-    const result = await GameService.submitTitle(
-      code,
-      sessionToken,
-      parsed.data.stage_id,
-      parsed.data.title,
-      parsed.data.matchup_id,
-      parsed.data.drawing_url
-    );
-
+    const result = await GameService.setGameMode(code, sessionToken, gameMode);
     return NextResponse.json(result, { status: 200 });
   } catch (err: any) {
     return NextResponse.json(
-      { error: err?.message || 'Failed to submit title' },
+      { error: err?.message || 'Failed to update game mode' },
       { status: err?.status || 500 }
     );
   }
